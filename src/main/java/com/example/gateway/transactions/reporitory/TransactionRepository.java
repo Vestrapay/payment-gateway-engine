@@ -6,5 +6,6 @@ import reactor.core.publisher.Mono;
 
 public interface TransactionRepository extends R2dbcRepository<Transaction,Long> {
     Mono<Transaction> findByTransactionReferenceAndMerchantIdAndUuid(String TransactionRef,String merchantId, String UUID );
+    Mono<Transaction> findByTransactionReferenceAndMerchantId(String TransactionRef,String merchantId);
 
 }

@@ -36,7 +36,7 @@ public class HttpUtil {
                 .headers(generateHttpHeaders(headers))
                 .exchange()
                 .onErrorResume(this::handleErrorResume)
-                .timeout(Duration.ofMillis(timeOut));
+                .timeout(Duration.ofSeconds(timeOut));
     }
 
     public Mono<Map> get(String endpoint, Map<String, String> headers) {
@@ -57,7 +57,7 @@ public class HttpUtil {
                 .headers(generateHttpHeaders(headers))
                 .exchange()
                 .onErrorResume(this::handleErrorResume)
-                .timeout(Duration.ofMillis(timeOut));
+                .timeout(Duration.ofSeconds(timeOut));
     }
 
 
@@ -84,7 +84,7 @@ public class HttpUtil {
                 .body(BodyInserters.fromValue(request))
                 .exchange()
                 .onErrorResume(this::handleErrorResume)
-                .timeout(Duration.ofMillis(DEFAULT_TIME_OUT));
+                .timeout(Duration.ofSeconds(DEFAULT_TIME_OUT));
     }
 
 

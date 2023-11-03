@@ -50,6 +50,7 @@ public class MpgsHttpClient {
 
     public Mono<ClientResponse> put(String path, Object request) {
         String endpoint = baseUrl.concat(path);
+        log.info(endpoint);
         return webClientBuilder.build()
                 .put()
                 .uri(endpoint)
@@ -71,14 +72,10 @@ public class MpgsHttpClient {
 
     private Consumer<HttpHeaders> generateHttpHeaders() {
         Map<String,String>headers = new HashMap<>();
-        String auth = "merchant."+merchantId+"."+apiPassword;
-        try {
-            String token = "Bearer "+Base64.getEncoder().encodeToString(auth.getBytes("utf-8"));
-            headers.put("Authorization",token);
+        String auth = "merchant."+merchantId+":"+apiPassword;
+        String token = "Basic "+Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
+        headers.put("Authorization",token);
 
-        } catch (UnsupportedEncodingException e) {
-            log.info(e.getLocalizedMessage());
-        }
         return consumerHttpHeader -> {
             consumerHttpHeader.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
             headers.forEach(consumerHttpHeader::add);

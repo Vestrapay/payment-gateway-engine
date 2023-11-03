@@ -1,9 +1,11 @@
 package com.example.gateway.integrations.mastercard.service;
 
-import com.example.gateway.commons.cardpayment.PaymentByCardRequestVO;
-import com.example.gateway.commons.cardpayment.PaymentByCardResponseVO;
+import com.example.gateway.integrations.mastercard.dto.PaymentByCardRequestVO;
+import com.example.gateway.integrations.mastercard.dto.PaymentByCardResponseVO;
 import com.example.gateway.commons.exceptions.CustomException;
+import com.example.gateway.commons.utils.PaymentUtils;
 import com.example.gateway.commons.utils.Response;
+import com.example.gateway.integrations.PaymentTypeInterface;
 import com.example.gateway.integrations.mastercard.dto.*;
 import com.example.gateway.integrations.mastercard.interfaces.IMasterCardService;
 import com.example.gateway.transactions.enums.PaymentTypeEnum;
@@ -12,10 +14,10 @@ import com.example.gateway.transactions.models.Transaction;
 import com.example.gateway.transactions.reporitory.TransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import lombok.val;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.TransactionStatus;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
@@ -26,13 +28,16 @@ import java.util.UUID;
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class MasterCardService implements IMasterCardService {
+@Qualifier("MasterCardService")
+@Primary
+public class MasterCardService implements IMasterCardService, PaymentTypeInterface {
     private static final String FAILED = "FAILED";
     private static final String SUCCESSFUL = "SUCCESSFUL";
     private final MpgsService mpgsService;
     private final TransactionRepository transactionRepository;
+    private static final String vestraPayMerchantID = "WMAVEST02";
     @Override
-    public Mono<Response<PaymentByCardResponseVO>> makePayment(PaymentByCardRequestVO requestVO) {
+    public Mono<Response<MasterCardMakePaymentResponse>> makePayment(PaymentByCardRequestVO requestVO) {
         if (requestVO.getMerchantId().isEmpty()){
             log.info("merchant Id must not be blank");
             throw new CustomException(Response.builder()
@@ -43,20 +48,20 @@ public class MasterCardService implements IMasterCardService {
                     .build(), HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
-        //todo save initial transaction
         return saveTransaction(requestVO)
                 .flatMap(transaction -> {
-                    return mpgsService.createSession(transaction.getMerchantId())
+                    return mpgsService.createSession(vestraPayMerchantID)
                             .flatMap(masterCardCreateSessionResponse -> {
-                                mpgsService.updateSession(createSessionRequest(requestVO),masterCardCreateSessionResponse.getSession().getId(),transaction.getMerchantId()).subscribe();
+                                mpgsService.updateSession(createSessionRequest(requestVO),masterCardCreateSessionResponse.getSession().getId(),vestraPayMerchantID).subscribe();
 
-                                return mpgsService.makePayment(createMakePaymentRequest(requestVO,masterCardCreateSessionResponse.getSession().getId()),transaction.getMerchantId())
+                                return mpgsService.makePayment(createMakePaymentRequest(requestVO,masterCardCreateSessionResponse.getSession().getId()),vestraPayMerchantID)
                                         .flatMap(response -> {
                                             log.info("response from MPGS is {}",response.toString());
                                             Status status = Status.valueOf(response.getResult());
 
                                             return updateTransaction(transaction,status)
-                                                    .flatMap(transaction1 -> Mono.just(Response.<PaymentByCardResponseVO>builder()
+                                                    .flatMap(transaction1 -> Mono.just(Response.<MasterCardMakePaymentResponse>builder()
+                                                                    .data(response)
                                                                     .message(SUCCESSFUL)
                                                                     .statusCode(HttpStatus.OK.value())
                                                                     .status(HttpStatus.OK)
@@ -67,12 +72,12 @@ public class MasterCardService implements IMasterCardService {
                                             return updateTransaction(transaction,Status.ONGOING)
                                                     .flatMap(transaction1 -> {
                                                         log.error("no response from gateway");
-                                                        return Mono.just(Response.<PaymentByCardResponseVO>builder()
-                                                                        .data(null) //todo create mapper from transaction to response DTO
-                                                                        .message(SUCCESSFUL)
+                                                        return Mono.just(Response.<MasterCardMakePaymentResponse>builder()
+                                                                        .data(null)
+                                                                        .message(FAILED)
                                                                         .status(HttpStatus.REQUEST_TIMEOUT)
                                                                         .statusCode(HttpStatus.REQUEST_TIMEOUT.value())
-                                                                        .errors(List.of("Response not received"))
+                                                                        .errors(List.of("Response not received","perform TSQ"))
                                                                 .build());
                                                     });
                                         }));
@@ -88,13 +93,14 @@ public class MasterCardService implements IMasterCardService {
                                         .errors(List.of("unable to create session for transaction"))
                                         .build(), HttpStatus.INTERNAL_SERVER_ERROR);
                             }))
-                            .doOnError(throwable -> {
+                            .doOnError(CustomException.class, customException -> {
                                 throw new CustomException(Response.builder()
                                         .message(FAILED)
-                                        .statusCode(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                                        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                        .errors(List.of("unable to create session for transaction"))
-                                        .build(), HttpStatus.INTERNAL_SERVER_ERROR);
+                                        .statusCode(customException.getHttpStatus().value())
+                                        .status(customException.getHttpStatus())
+                                        .data(customException.getResponse().getData())
+                                        .errors(customException.getResponse().getErrors())
+                                        .build(), customException.getHttpStatus());
                             });
 
 
@@ -108,14 +114,14 @@ public class MasterCardService implements IMasterCardService {
                             .errors(List.of("unable to save initial transaction record"))
                             .build(), HttpStatus.INTERNAL_SERVER_ERROR);
                 }))
-                .doOnError(throwable -> {
-                    log.error("error saving initial transaction");
+                .doOnError(CustomException.class, customException -> {
                     throw new CustomException(Response.builder()
                             .message(FAILED)
-                            .statusCode(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                            .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .errors(List.of(throwable.getLocalizedMessage()))
-                            .build(), HttpStatus.INTERNAL_SERVER_ERROR);
+                            .statusCode(customException.getHttpStatus().value())
+                            .status(customException.getHttpStatus())
+                            .data(customException.getResponse().getData())
+                            .errors(customException.getResponse().getErrors())
+                            .build(), customException.getHttpStatus());
                 });
 
     }
@@ -127,25 +133,25 @@ public class MasterCardService implements IMasterCardService {
 
     //todo add transaction fee to the transaction record
     private Mono<Transaction> saveTransaction(PaymentByCardRequestVO request){
-        //todo save transaction
         Transaction transaction = Transaction.builder()
-                .pan(request.getCardDetails().getPan().substring(0,6).concat("******").concat(request.getCardDetails().getPan().substring(request.getCardDetails().getPan().length()-4,request.getCardDetails().getPan().length())))
+                .pan(request.getCardDetails().getPan().substring(0,6).concat("******").concat(request.getCardDetails().getPan().substring(request.getCardDetails().getPan().length()-4)))
                 .uuid(UUID.randomUUID().toString())
                 .amount(new BigDecimal(request.getAmount()))
                 .userId(request.getMerchantId())
                 .paymentType(PaymentTypeEnum.CARD)
-                .cardScheme(request.getCardDetails().getPan().substring(0,6))
-                .transactionReference(UUID.randomUUID().toString())
+                .cardScheme(PaymentUtils.detectCardScheme(request.getCardDetails().getPan()))
+                .transactionReference(request.getReference())
+                .vestraPayReference(UUID.randomUUID().toString())
                 .transactionStatus(Status.ONGOING)
                 .narration("Transaction initiated at "+new Date())
                 .activityStatus(Status.ONGOING.toString())
-//                .merchantId(request.getMerchantId())
+                .merchantId(request.getMerchantId())
+                .providerName("MPGS")
                 .build();
         return transactionRepository.save(transaction);
     }
 
     private Mono<Transaction> updateTransaction(Transaction request, Status status){
-        //todo save transaction
         return transactionRepository.findByTransactionReferenceAndMerchantIdAndUuid(request.getTransactionReference(), request.getMerchantId(),request.getUuid())
                 .flatMap(transaction -> {
                     transaction.setTransactionStatus(status);
@@ -153,7 +159,11 @@ public class MasterCardService implements IMasterCardService {
                             .flatMap(Mono::just);
 
                 }).switchIfEmpty(Mono.defer(() -> {
-                    return Mono.just(request);
+                    throw new CustomException(Response.builder()
+                            .message("Failed")
+                            .statusCode(HttpStatus.NOT_FOUND.value())
+                            .status(HttpStatus.NOT_FOUND)
+                            .build(), HttpStatus.NOT_FOUND);
                 }));
     }
 
@@ -207,7 +217,8 @@ public class MasterCardService implements IMasterCardService {
                 .build();
     }
 
-    public String getProcessorName(){
-        return "MASTERCARD";
+    @Override
+    public String getPaymentType() {
+        return "CARD";
     }
 }

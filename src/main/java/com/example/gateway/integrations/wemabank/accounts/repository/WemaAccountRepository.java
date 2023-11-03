@@ -6,4 +6,5 @@ import reactor.core.publisher.Mono;
 
 public interface WemaAccountRepository extends R2dbcRepository<WemaAccounts,Long> {
     Mono<WemaAccounts>findByAccountNumber(String accountNumber);
+    Mono<WemaAccounts>findByMerchantId(String merchantId);
 }

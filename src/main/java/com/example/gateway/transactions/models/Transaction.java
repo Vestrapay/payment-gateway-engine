@@ -32,6 +32,10 @@ public class Transaction {
     private String pan;
     @Column("transaction_reference")
     private String transactionReference;
+    @Column("vestrapay_reference")
+    private String vestraPayReference;
+    @Column("provider_reference")
+    private String providerReference;
     @Column("scheme")
     private String cardScheme;
     @Column("description")
@@ -44,6 +48,8 @@ public class Transaction {
     private String userId;
     @Column("merchant_id")
     private String merchantId;
+    @Column("provider_name")
+    private String providerName;
     @Column("created_at")
     @CreatedDate
     private LocalDateTime createdAt;

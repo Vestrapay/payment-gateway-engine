@@ -27,5 +27,4 @@ public class MasterCardOrderTSQResponse {
     private BigDecimal amount;
     private String creationTime;
     private String lastUpdatedTime;
-    ;
 }
