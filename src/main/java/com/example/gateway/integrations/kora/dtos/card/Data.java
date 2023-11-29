@@ -7,20 +7,22 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.math.BigDecimal;
+
 @Getter
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class Data {
-    private double amount;
+    private BigDecimal amount;
     @JsonProperty("amount_charged")
     private double amountCharged;
     @JsonProperty("auth_model")
     private String authModel;
     private String currency;
-    private double fee;
-    private double vat;
+    private BigDecimal fee;
+    private BigDecimal vat;
     @JsonProperty("response_message")
     private String responseMessage;
     @JsonProperty("payment_reference")

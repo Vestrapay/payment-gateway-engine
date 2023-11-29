@@ -60,6 +60,19 @@ public class HttpUtil {
                 .timeout(Duration.ofSeconds(timeOut));
     }
 
+    public Mono<ClientResponse> post(String endpoint, Object request, Map<String, String> headers, MediaType mediaType) {
+        log.info("{}",request);
+        return webClientBuilder.build()
+                .post()
+                .uri(endpoint)
+                .contentType(mediaType)
+                .body(BodyInserters.fromValue(request))
+                .headers(generateHttpHeadersForText(headers))
+                .exchange()
+                .onErrorResume(this::handleErrorResume)
+                .timeout(Duration.ofSeconds(180));
+    }
+
 
     public Mono<Map> post(String endpoint, Object request, Map<String, String> headers) {
         return webClientBuilder.build()
@@ -74,6 +87,13 @@ public class HttpUtil {
     private Consumer<HttpHeaders> generateHttpHeaders(Map<String, String> headers) {
         return consumerHttpHeader -> {
             consumerHttpHeader.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            headers.forEach(consumerHttpHeader::add);
+        };
+    }
+
+    private Consumer<HttpHeaders> generateHttpHeadersForText(Map<String, String> headers) {
+        return consumerHttpHeader -> {
+            consumerHttpHeader.setAccept(Collections.singletonList(MediaType.TEXT_PLAIN));
             headers.forEach(consumerHttpHeader::add);
         };
     }

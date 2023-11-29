@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
+@ToString
 public class PayWithTransferDTO {
     private String reference;
     private BigDecimal amount;

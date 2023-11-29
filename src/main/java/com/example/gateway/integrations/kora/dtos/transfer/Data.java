@@ -2,6 +2,7 @@ package com.example.gateway.integrations.kora.dtos.transfer;
 
 import com.example.gateway.integrations.kora.dtos.card.Customer;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -9,6 +10,7 @@ import java.math.BigDecimal;
 
 @Getter
 @Setter
+@Builder
 public class Data {
     private String currency;
     private BigDecimal amount;

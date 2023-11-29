@@ -25,6 +25,7 @@ public class TransactionService {
         transaction.setUuid(UUID.randomUUID().toString());
         transaction.setTransactionStatus(Status.ONGOING);
         transaction.setPaymentType(typeEnum);
+        transaction.setSettlementStatus(Status.PENDING);
 
         if (typeEnum.equals(PaymentTypeEnum.CARD)){
             transaction.setCardScheme(PaymentUtils.detectCardScheme(transaction.getPan()));

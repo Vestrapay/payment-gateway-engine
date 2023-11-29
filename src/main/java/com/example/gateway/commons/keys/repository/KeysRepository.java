@@ -6,5 +6,5 @@ import reactor.core.publisher.Mono;
 
 public interface KeysRepository extends R2dbcRepository<Keys,Long> {
     Mono<Keys>findByUserIdAndKeyUsage(String userId,String keyUsage);
-    Mono<Keys>findByUserIdAndSecretKey(String userId,String secretKey);
+    Mono<Keys> findByUserIdAndSecretKeyAndKeyUsage(String userId, String secretKey,String environment);
 }

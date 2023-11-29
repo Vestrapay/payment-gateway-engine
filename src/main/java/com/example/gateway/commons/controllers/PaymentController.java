@@ -1,7 +1,6 @@
 package com.example.gateway.commons.controllers;
 
 import com.example.gateway.commons.dto.card.CardPaymentRequestDTO;
-import com.example.gateway.commons.dto.card.CardPaymentResponseDTO;
 import com.example.gateway.commons.dto.paymentlink.PaymentLinkRequestDTO;
 import com.example.gateway.commons.dto.transfer.TransferPaymentRequestDTO;
 import com.example.gateway.commons.dto.ussd.USSDPaymentRequestDTO;
@@ -16,11 +15,10 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("api/v1/pay/")
@@ -28,6 +26,7 @@ import java.util.Map;
 @SecurityRequirement(name = "vestrapay")
 @CrossOrigin(origins ="*",maxAge = 3600)
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentController {
     private final IPaymentService paymentService;
     private final IKoraService koraService;
@@ -105,10 +104,20 @@ public class PaymentController {
                         .body(cardPaymentResponseDTOResponse));
     }
 
+    @GetMapping("transaction-status/{transactionReference}")
+    public Mono<ResponseEntity<Response<?>>>doTSQ(@RequestHeader String secret,
+                                                        @RequestHeader String merchantId,
+                                                        @PathVariable("transactionReference") String reference){
+        return paymentService.doTSQ(secret,merchantId,reference)
+                .map(cardPaymentResponseDTOResponse -> ResponseEntity.status(cardPaymentResponseDTOResponse.getStatus())
+                        .body(cardPaymentResponseDTOResponse));
+    }
 
-    @PostMapping("webhook")
-    public Mono<ResponseEntity<Response<Object>>>webhook(@RequestBody @Valid Map<String,Object> request){
-        return paymentService.webhook(request)
+
+    @PostMapping("webhook/{PROVIDER}")
+    public Mono<ResponseEntity<Response<Object>>>webhook(@PathVariable("PROVIDER")String provider,@RequestBody @Valid Object request){
+        log.info("incoming webhook request is {}",request);
+        return paymentService.webhook(request,provider)
                 .map(cardPaymentResponseDTOResponse -> ResponseEntity.status(cardPaymentResponseDTOResponse.getStatus())
                         .body(cardPaymentResponseDTOResponse));
     }

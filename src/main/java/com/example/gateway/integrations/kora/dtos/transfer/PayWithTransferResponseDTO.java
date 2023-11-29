@@ -1,14 +1,12 @@
 package com.example.gateway.integrations.kora.dtos.transfer;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 
 @Getter
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
+@Builder
 public class PayWithTransferResponseDTO {
     private boolean status;
     private String message;

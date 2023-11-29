@@ -7,7 +7,7 @@ import reactor.core.publisher.Mono;
 
 public interface IKoraService {
     Mono<Response<?>> payWithCard(KoraPayWithCardRequest request, String merchantId);
-    Mono<Response<String>>chargeCard(String request,String merchantId,String reference);
+    Mono<Response<?>>chargeCard(String request,String merchantId,String reference);
 
     Mono<Response<String>> decrypt(EncryptDecryptRequest request);
 

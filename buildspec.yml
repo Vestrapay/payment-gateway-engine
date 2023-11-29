@@ -1,0 +1,50 @@
+# installing java to base docker from amazon
+#https://github.com/aws/aws-codebuild-docker-images/blob/master/ubuntu/java/openjdk-8/Dockerfile
+#https://github.com/aws/aws-codebuild-docker-images/blob/master/ubuntu/docker/1.12.1/Dockerfile
+version: 0.2
+
+env:
+  variables:
+    MAVEN_VERSION: "3.6.0"
+    AWS_ACCOUNT_ID : "560723909188"
+    IMAGE_REPO_NAME : "vestrapay-pgs"
+    IMAGE_TAG : "latest"
+    AWS_DEFAULT_REGION: "eu-west-1"
+
+
+phases:
+  install:
+    commands:
+
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin 560723909188.dkr.ecr.eu-west-1.amazonaws.com
+
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Build started on `date`
+      - printenv
+      - mvn clean install -DskipTests
+      - ls
+      - docker build -t vestrapay-pgs -f DockerFile --build-arg IMAGE_TAG=$IMAGE_TAG .
+#      - docker build -t vestrapay-pgs
+      - docker images -a
+      - echo Building the Docker image...
+      - docker tag $IMAGE_REPO_NAME:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
+      - docker images -a
+
+      # - command
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker image...
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
+      - echo Writing image definitions file...
+      - printf '[{"name":"vestrapay-pgs","imageUri":"%s"}]' $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG > imagedefinitions.json
+      - cat imagedefinitions.json
+artifacts:
+  files: imagedefinitions.json
+
+

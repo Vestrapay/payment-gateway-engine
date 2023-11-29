@@ -17,6 +17,7 @@ import reactor.core.publisher.Mono;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
@@ -45,6 +46,7 @@ public class MpgsHttpClient {
                 .headers(generateHttpHeaders())
                 .body(BodyInserters.fromValue(request))
                 .exchange()
+                .timeout(Duration.ofSeconds(180))
                 .onErrorResume(this::handleErrorResume);
     }
 

@@ -29,6 +29,7 @@ public class Transaction {
     @Enumerated(EnumType.STRING)
     private PaymentTypeEnum paymentType;
     private BigDecimal amount;
+    private BigDecimal fee;
     private String pan;
     @Column("transaction_reference")
     private String transactionReference;
@@ -50,6 +51,8 @@ public class Transaction {
     private String merchantId;
     @Column("provider_name")
     private String providerName;
+    @Column("settlement_status")
+    private Status settlementStatus;
     @Column("created_at")
     @CreatedDate
     private LocalDateTime createdAt;

@@ -2,9 +2,7 @@ package com.example.gateway.commons.utils;
 
 import com.example.gateway.commons.dto.card.CardPaymentRequestDTO;
 import com.example.gateway.commons.dto.transfer.TransferPaymentRequestDTO;
-import com.example.gateway.integrations.kora.dtos.card.Card;
-import com.example.gateway.integrations.kora.dtos.card.KoraPayWithCardRequest;
-import com.example.gateway.integrations.kora.dtos.card.MetaData;
+import com.example.gateway.integrations.kora.dtos.card.*;
 import com.example.gateway.integrations.kora.dtos.transfer.PayWithTransferDTO;
 import com.example.gateway.integrations.mastercard.dto.CardDetails;
 import com.example.gateway.integrations.mastercard.dto.Currency;
@@ -36,7 +34,7 @@ public class ObjectMapperUtil {
                 .redirectUrl("")
                 .reference(request.getTransactionReference().isEmpty()?UUID.randomUUID().toString(): request.getTransactionReference())
                 .customer(request.getCustomerDetails())
-                .card(Card.builder()
+                .card(Card2.builder()
                         .name(request.getCard().getName())
                         .number(request.getCard().getNumber())
                         .cvv(request.getCard().getCvv())
@@ -46,7 +44,10 @@ public class ObjectMapperUtil {
                         .build())
                 .amount(request.getAmount())
                 .currency(request.getCurrency())
-                .metadata(MetaData.builder()
+                .metadata(MetaData2.builder()
+                        .internalRef(UUID.randomUUID().toString())
+                        .age(15)
+                        .fixed(true)
                         .build())
                 .build();
     }
