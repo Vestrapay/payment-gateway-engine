@@ -57,7 +57,7 @@ public class HttpUtil {
                 .headers(generateHttpHeaders(headers))
                 .exchange()
                 .onErrorResume(this::handleErrorResume)
-                .timeout(Duration.ofSeconds(timeOut));
+                .timeout(Duration.ofSeconds(10000));
     }
 
     public Mono<ClientResponse> post(String endpoint, Object request, Map<String, String> headers, MediaType mediaType) {

@@ -13,11 +13,11 @@ import com.example.gateway.integrations.wemabank.accounts.repository.WemaAccount
 import com.example.gateway.integrations.wemabank.dtos.*;
 import com.example.gateway.integrations.wemabank.interfaces.IWemaBankService;
 import com.example.gateway.integrations.wemabank.utils.WemaTokenUtils;
-import com.example.gateway.transactions.enums.PaymentTypeEnum;
-import com.example.gateway.transactions.enums.Status;
-import com.example.gateway.transactions.models.Transaction;
-import com.example.gateway.transactions.reporitory.TransactionRepository;
-import com.example.gateway.transactions.services.TransactionService;
+import com.example.gateway.commons.transactions.enums.PaymentTypeEnum;
+import com.example.gateway.commons.transactions.enums.Status;
+import com.example.gateway.commons.transactions.models.Transaction;
+import com.example.gateway.commons.transactions.reporitory.TransactionRepository;
+import com.example.gateway.commons.transactions.services.TransactionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -53,7 +53,7 @@ public class WemaBankService implements IWemaBankService, PaymentTypeInterface {
                 .flatMap(transaction -> {
                     transaction.setTransactionStatus(Status.SUCCESSFUL);
                     transaction.setNarration(request.getNarration());
-                    return transactionRepository.save(transaction)
+                    return transactionService.updateTransaction(transaction)
                             .flatMap(transaction1 -> {
                                 log.info("transaction notification from wemabank saved successfully");
                                 return Mono.just(WemaTransactionNotificationResponse.builder()
@@ -102,7 +102,7 @@ public class WemaBankService implements IWemaBankService, PaymentTypeInterface {
     }
 
     @Override
-    public Mono<Response<Object>> payWithTransfer(String merchantId, PayWithTransferDTO request) {
+    public Mono<Response<Object>> payWithTransfer(String merchantId, PayWithTransferDTO request,String userId) {
         Transaction tranLog = Transaction.builder()
                 .transactionReference(request.getReference())
                 .amount(request.getAmount())
@@ -110,64 +110,63 @@ public class WemaBankService implements IWemaBankService, PaymentTypeInterface {
                 .pan("WEMA_TRANSFER")
                 .cardScheme("TRANSFER")
                 .paymentType(PaymentTypeEnum.TRANSFER)
-                .userId(merchantId)
+                .userId(userId)
                 .vestraPayReference(UUID.randomUUID().toString())
                 .merchantId(merchantId)
                 .providerName(PROVIDER_NAME)
                 .activityStatus("transaction initiated at "+new Date())
                 .narration(request.getCustomer().getEmail())
+                .userId(request.getCustomer().getEmail())
                 .build();
 
         return transactionService.saveTransaction(tranLog,PaymentTypeEnum.TRANSFER,merchantId)
-                .flatMap(transaction->{
-                    return wemaAccountRepository.findByMerchantId(merchantId)
-                            .flatMap(wemaAccounts -> {
-                                log.info("merchant {} wema account gotten",merchantId);
-                                PayWithTransferResponseDTO responseDTO = PayWithTransferResponseDTO.builder()
-                                        .status(true)
-                                        .message("Bank transfer initiated successfully")
-                                        .data(Data.builder()
-                                                .amount(request.getAmount())
-                                                .fee(BigDecimal.ZERO)
-                                                .status("Processing")
-                                                .currency(request.getCurrency())
-                                                .amountExpected(request.getAmount())
-                                                .customer(request.getCustomer())
-                                                .merchantBearsCost(true)
-                                                .vat(BigDecimal.valueOf(3.75))
-                                                .paymentReference(tranLog.getVestraPayReference())
-                                                .narration("Payment on VESTRAPAY NIGERIA LIMITED")
-                                                .bankAccount(BankAccount.builder()
-                                                        .bankCode("945")
-                                                        .bankName("WEMA BANK")
-                                                        .accountName(wemaAccounts.getAccountName())
-                                                        .accountNumber(wemaAccounts.getAccountNumber())
-                                                        .build())
-                                                .build())
-                                        .build();
+                .flatMap(transaction-> wemaAccountRepository.findByMerchantId(merchantId)
+                        .flatMap(wemaAccounts -> {
+                            log.info("merchant {} wema account gotten",merchantId);
+                            PayWithTransferResponseDTO responseDTO = PayWithTransferResponseDTO.builder()
+                                    .status(true)
+                                    .message("Bank transfer initiated successfully")
+                                    .data(Data.builder()
+                                            .amount(request.getAmount())
+                                            .fee(BigDecimal.ZERO)
+                                            .status("Processing")
+                                            .currency(request.getCurrency())
+                                            .amountExpected(request.getAmount())
+                                            .customer(request.getCustomer())
+                                            .merchantBearsCost(true)
+                                            .vat(BigDecimal.valueOf(3.75))
+                                            .paymentReference(tranLog.getVestraPayReference())
+                                            .reference(tranLog.getVestraPayReference())
+                                            .narration("Payment on VESTRAPAY NIGERIA LIMITED")
+                                            .bankAccount(BankAccount.builder()
+                                                    .bankCode("945")
+                                                    .bankName("WEMA BANK")
+                                                    .accountName(wemaAccounts.getAccountName())
+                                                    .accountNumber(wemaAccounts.getAccountNumber())
+                                                    .build())
+                                            .build())
+                                    .build();
 
-                                return Mono.just(Response.builder()
-                                        .message("SUCCESSFUL")
-                                        .data(responseDTO)
-                                        .statusCode(HttpStatus.OK.value())
-                                        .status(HttpStatus.OK)
-                                        .build());
+                            return Mono.just(Response.builder()
+                                    .message("SUCCESSFUL")
+                                    .data(responseDTO)
+                                    .statusCode(HttpStatus.OK.value())
+                                    .status(HttpStatus.OK)
+                                    .build());
 
-                            })
-                            .switchIfEmpty(Mono.defer(() -> {
-                                log.error("wema account not found for merchant");
-                                return Mono.just(Response.builder()
-                                        .statusCode(HttpStatus.NOT_FOUND.value())
-                                        .status(HttpStatus.NOT_FOUND)
-                                        .errors(List.of("Account not found for merchant"))
-                                        .build());
-                            }))
-                            .doOnError(throwable -> {
-                                log.error("error fetching wema account for merchant {}",merchantId);
-                                throw new CustomException(throwable);
-                            });
-
-                })
+                        })
+                        .switchIfEmpty(Mono.defer(() -> {
+                            log.error("wema account not found for merchant");
+                            return Mono.just(Response.builder()
+                                    .statusCode(HttpStatus.NOT_FOUND.value())
+                                    .status(HttpStatus.NOT_FOUND)
+                                    .errors(List.of("Account not found for merchant"))
+                                    .build());
+                        }))
+                        .doOnError(throwable -> {
+                            log.error("error fetching wema account for merchant {}",merchantId);
+                            throw new CustomException(throwable);
+                        }))
                 .doOnError(throwable -> {
                     log.error("error saving transaction request for pay with transfer with DTO {}", request);
                     throw new CustomException(Response.builder()
@@ -207,14 +206,12 @@ public class WemaBankService implements IWemaBankService, PaymentTypeInterface {
                                         }
                                         else
                                             return clientResponse.bodyToMono(String.class)
-                                                    .flatMap(response -> {
-                                                        return Mono.just(Response.<String>builder()
-                                                                .data(AESEncryptionUtils.decrypt(response,initVector,secretKey))
-                                                                .statusCode(HttpStatus.OK.value())
-                                                                .status(HttpStatus.OK)
-                                                                .message("Successful")
-                                                                .build());
-                                                    });
+                                                    .flatMap(response -> Mono.just(Response.<String>builder()
+                                                            .data(AESEncryptionUtils.decrypt(response,initVector,secretKey))
+                                                            .statusCode(HttpStatus.OK.value())
+                                                            .status(HttpStatus.OK)
+                                                            .message("Successful")
+                                                            .build()));
 
                                     });
 

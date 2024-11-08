@@ -43,7 +43,10 @@ public class MpgsHttpClient {
         return webClientBuilder.build()
                 .post()
                 .uri(endpoint)
-                .headers(generateHttpHeaders())
+                .headers(headers -> {
+                    headers.setBasicAuth("merchant."+merchantId, apiPassword);
+                    headers.set(HttpHeaders.CONTENT_TYPE, "application/json");
+                })
                 .body(BodyInserters.fromValue(request))
                 .exchange()
                 .timeout(Duration.ofSeconds(180))
@@ -56,7 +59,10 @@ public class MpgsHttpClient {
         return webClientBuilder.build()
                 .put()
                 .uri(endpoint)
-                .headers(generateHttpHeaders())
+                .headers(headers -> {
+                    headers.setBasicAuth("merchant."+merchantId, apiPassword);
+                    headers.set(HttpHeaders.CONTENT_TYPE, "application/json");
+                })
                 .body(BodyInserters.fromValue(request))
                 .exchange()
                 .onErrorResume(this::handleErrorResume);
@@ -67,21 +73,12 @@ public class MpgsHttpClient {
         return webClientBuilder.build()
                 .get()
                 .uri(endpoint)
-                .headers(generateHttpHeaders())
+                .headers(headers -> {
+                    headers.setBasicAuth("merchant."+merchantId, apiPassword);
+                    headers.set(HttpHeaders.CONTENT_TYPE, "application/json");
+                })
                 .exchange()
                 .onErrorResume(this::handleErrorResume);
-    }
-
-    private Consumer<HttpHeaders> generateHttpHeaders() {
-        Map<String,String>headers = new HashMap<>();
-        String auth = "merchant."+merchantId+":"+apiPassword;
-        String token = "Basic "+Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
-        headers.put("Authorization",token);
-
-        return consumerHttpHeader -> {
-            consumerHttpHeader.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-            headers.forEach(consumerHttpHeader::add);
-        };
     }
 
     private Mono<ClientResponse> handleErrorResume(Throwable err) {

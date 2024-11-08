@@ -1,13 +1,14 @@
 package com.example.gateway.integrations.paymentlink.service;
 
 import com.example.gateway.commons.keys.repository.KeysRepository;
+import com.example.gateway.commons.merchants.service.ValidateUserKycService;
 import com.example.gateway.commons.utils.Response;
 import com.example.gateway.integrations.paymentlink.dto.PaymentLinkDTO;
 import com.example.gateway.integrations.paymentlink.entity.PaymentLink;
-import com.example.gateway.integrations.paymentlink.interfaces.IPaymentLinkService;
+import com.example.gateway.api.paymentlink.interfaces.IPaymentLinkService;
 import com.example.gateway.integrations.paymentlink.repository.PaymentLinkRepository;
 import com.example.gateway.integrations.paymentlink.utils.ResponseDTO;
-import com.example.gateway.transactions.enums.Status;
+import com.example.gateway.commons.transactions.enums.Status;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,66 +33,89 @@ public class PaymentLinkService implements IPaymentLinkService {
 
     @Value("${server.environment}")
     String environment;
+    private final ValidateUserKycService validateUserKycService;
     @Override
-    public Mono<Response<Object>> generatePaymentLink(String merchantId, String secret, PaymentLinkDTO request) {
-        String reference = UUID.randomUUID().toString();
-        String path = request.getCustomizedLink().isEmpty() ?reference : request.getCustomizedLink();
+    public Mono<Response<Object>> generatePaymentLink(String merchantId, String secret, PaymentLinkDTO request, String userId) {
+        return validateUserKycService.isKycComplete(merchantId)
+                .flatMap(aBoolean -> {
+                    if (aBoolean){
+                        String reference = UUID.randomUUID().toString();
+                        String path = request.getCustomizedLink().isEmpty() ?reference : request.getCustomizedLink();
+                        String finalPath = "";
+                        if (path.startsWith("/")){
+                            finalPath = path.substring(1);
+                        }
+                        else
+                            finalPath = path;
 
-        return keysRepository.findByUserIdAndSecretKeyAndKeyUsage(merchantId,secret,environment)
-                .flatMap(keys -> {
-                    return paymentLinkRepository.findByMerchantIdAndPath(merchantId,path)
-                            .flatMap(paymentLink -> {
-                                log.error("payment link already exist with invoice number for merchant");
-                                return Mono.just(Response.builder()
-                                                .statusCode(HttpStatus.CONFLICT.value())
-                                                .status(HttpStatus.CONFLICT)
-                                                .message(SUCCESS)
-                                                .errors(List.of("payment link already exists",paymentLink.getLink()))
-                                        .build());
-                            })
-                            .switchIfEmpty(Mono.defer(() -> {
+                        String finalPath1 = finalPath;
+                        return keysRepository.findByUserIdAndSecretKeyAndKeyUsage(merchantId,secret,environment)
+                                .flatMap(keys -> {
+                                    return paymentLinkRepository.findByMerchantIdAndPath(merchantId, finalPath1)
+                                            .flatMap(paymentLink -> {
+                                                log.error("payment link already exist with invoice number for merchant");
+                                                return Mono.just(Response.builder()
+                                                        .statusCode(HttpStatus.CONFLICT.value())
+                                                        .status(HttpStatus.CONFLICT)
+                                                        .message(SUCCESS)
+                                                        .errors(List.of("payment link already exists",paymentLink.getLink()))
+                                                        .build());
+                                            })
+                                            .switchIfEmpty(Mono.defer(() -> {
 
-                                PaymentLink paymentLink = PaymentLink.builder()
-                                        .uuid(UUID.randomUUID().toString())
-                                        .link(baseUrl.concat("/"+path))
-                                        .path(path)
-                                        .amount(request.getAmount())
-                                        .invoiceId(request.getInvoiceId())
-                                        .transactionId(reference)
-                                        .description(request.getDescription())
-                                        .customerEmail(request.getCustomer().getEmail())
-                                        .customerName(request.getCustomer().getName())
-                                        .params(request.getAdditionalData().toString())
-                                        .merchantId(merchantId)
-                                        .status(Status.INITIATED)
-                                        .expiryDate(LocalDateTime.now().plusDays(request.getDaysActive()))
-                                        .build();
-//todo send notification to customer email
-                                return paymentLinkRepository.save(paymentLink)
-                                        .flatMap(paymentLink1 -> {
-                                            return Mono.just(Response.builder()
-                                                            .data(paymentLink1)
-                                                            .message(SUCCESS)
-                                                            .status(HttpStatus.CREATED)
-                                                            .statusCode(HttpStatus.CREATED.value())
-                                                    .build());
-                                        });
-                            }));
+                                                PaymentLink paymentLink = PaymentLink.builder()
+                                                        .uuid(UUID.randomUUID().toString())
+                                                        .link(baseUrl.concat("/"+finalPath1))
+                                                        .path(finalPath1)
+                                                        .userId(userId)
+                                                        .amount(request.getAmount())
+                                                        .invoiceId(request.getInvoiceId())
+                                                        .transactionId(reference)
+                                                        .description(request.getDescription())
+                                                        .customerEmail(request.getCustomer().getEmail())
+                                                        .customerName(request.getCustomer().getName())
+                                                        .params(request.getAdditionalData().toString())
+                                                        .merchantId(merchantId)
+                                                        .status(Status.INITIATED)
+                                                        .expiryDate(LocalDateTime.now().plusDays(request.getDaysActive()))
+                                                        .build();
+                                                log.info("payment link DTO {}",paymentLink);
+                                                return paymentLinkRepository.save(paymentLink)
+                                                        .flatMap(paymentLink1 -> {
+                                                            return Mono.just(Response.builder()
+                                                                    .data(paymentLink1)
+                                                                    .message(SUCCESS)
+                                                                    .status(HttpStatus.CREATED)
+                                                                    .statusCode(HttpStatus.CREATED.value())
+                                                                    .build());
+                                                        });
+                                            }));
 
-                })
-                .switchIfEmpty(Mono.defer(() -> {
-                    log.error("keys not found for user for environment {}",environment);
+                                })
+                                .switchIfEmpty(Mono.defer(() -> {
+                                    log.error("keys not found for user for environment {}",environment);
+                                    return Mono.just(Response.builder()
+                                            .status(HttpStatus.BAD_REQUEST)
+                                            .statusCode(HttpStatus.BAD_REQUEST.value())
+                                            .message(FAILED)
+                                            .errors(List.of(environment+" keys not found for merchant"))
+                                            .build());
+                                }));
+                    }
+                    log.error("KYC incomplete for merchant {}",merchantId);
                     return Mono.just(Response.builder()
-                            .status(HttpStatus.BAD_REQUEST)
+                            .status(HttpStatus.UNAUTHORIZED)
+                            .errors(List.of("Merchant KYC not complete"))
                             .statusCode(HttpStatus.BAD_REQUEST.value())
+                            .data("Merchant KYC not complete")
                             .message(FAILED)
-                            .errors(List.of(environment+" keys not found for merchant"))
                             .build());
-                }));
+                });
+
     }
 
     @Override
-    public Mono<Response<Object>> viewLinkStatus(String merchantId, String secret, String linkId) {
+    public Mono<Response<Object>> viewLinkStatus(String merchantId, String secret, String linkId, String userId) {
         return keysRepository.findByUserIdAndSecretKeyAndKeyUsage(merchantId,secret,environment).flatMap(keys -> {
             return paymentLinkRepository.findByMerchantIdAndUuid(merchantId,linkId)
                     .flatMap(paymentLink -> {
@@ -125,7 +149,7 @@ public class PaymentLinkService implements IPaymentLinkService {
     }
 
     @Override
-    public Mono<Response<Object>> fetchAllLinksForMerchant(String merchantId, String secret) {
+    public Mono<Response<Object>> fetchAllLinksForMerchant(String merchantId, String secret, String userId) {
         return keysRepository.findByUserIdAndSecretKeyAndKeyUsage(merchantId,secret,environment).flatMap(keys -> {
             return paymentLinkRepository.findByMerchantId(merchantId)
                     .collectList()
@@ -150,6 +174,7 @@ public class PaymentLinkService implements IPaymentLinkService {
 
     @Override
     public Mono<ResponseDTO<Object>> getPaymentLinkDetails(String linkId) {
+        // TODO: 10/12/2023 implement send FE base URL to send email notification to customer
         return paymentLinkRepository.findByPathAndStatus(linkId,Status.INITIATED)
                 .collectList()
                 .flatMap(paymentLink -> {

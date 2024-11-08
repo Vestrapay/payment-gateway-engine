@@ -9,8 +9,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 
-@Getter
-@Setter
+@lombok.Data
 @AllArgsConstructor
 @NoArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)

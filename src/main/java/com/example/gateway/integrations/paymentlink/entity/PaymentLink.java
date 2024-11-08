@@ -1,6 +1,6 @@
 package com.example.gateway.integrations.paymentlink.entity;
 
-import com.example.gateway.transactions.enums.Status;
+import com.example.gateway.commons.transactions.enums.Status;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -13,9 +13,6 @@ import org.springframework.data.relational.core.mapping.Table;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Table("payment_link")
 @Entity
@@ -47,6 +44,8 @@ public class PaymentLink {
     private String customerEmail;
     private String params;
     private String description;
+    @Column("user_id")
+    private String userId;
     @CreatedDate
     @Column("date_created")
     private LocalDateTime dateCreated;

@@ -7,7 +7,7 @@ import com.example.gateway.integrations.mastercard.dto.MasterCardMakePaymentResp
 import reactor.core.publisher.Mono;
 
 public interface IMasterCardService {
-    Mono<Response<MasterCardMakePaymentResponse>> makePayment(PaymentByCardRequestVO request);
+    Mono<Response<?>> makePayment(PaymentByCardRequestVO request,String customerId);
     Mono<Response<PaymentByCardResponseVO>> doTsq();
 
 }

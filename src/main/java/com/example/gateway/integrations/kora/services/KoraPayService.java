@@ -1,5 +1,10 @@
 package com.example.gateway.integrations.kora.services;
 
+import com.example.gateway.commons.charge.enums.ChargeCategory;
+import com.example.gateway.commons.charge.enums.PaymentMethod;
+import com.example.gateway.commons.charge.service.ChargeService;
+import com.example.gateway.commons.exceptions.CustomException;
+import com.example.gateway.commons.notificatioin.NotificationService;
 import com.example.gateway.commons.utils.AESEncryptionUtils;
 import com.example.gateway.commons.utils.HttpUtil;
 import com.example.gateway.commons.utils.Response;
@@ -7,12 +12,13 @@ import com.example.gateway.integrations.kora.dtos.card.*;
 import com.example.gateway.integrations.kora.dtos.transfer.PayWithTransferDTO;
 import com.example.gateway.integrations.kora.dtos.transfer.PayWithTransferResponseDTO;
 import com.example.gateway.integrations.kora.interfaces.IKoraService;
-import com.example.gateway.transactions.enums.PaymentTypeEnum;
-import com.example.gateway.transactions.enums.Status;
-import com.example.gateway.transactions.models.Transaction;
-import com.example.gateway.transactions.reporitory.TransactionRepository;
-import com.example.gateway.transactions.services.TransactionService;
+import com.example.gateway.commons.transactions.enums.PaymentTypeEnum;
+import com.example.gateway.commons.transactions.enums.Status;
+import com.example.gateway.commons.transactions.models.Transaction;
+import com.example.gateway.commons.transactions.reporitory.TransactionRepository;
+import com.example.gateway.commons.transactions.services.TransactionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,10 +26,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @Slf4j
@@ -43,6 +46,10 @@ public class KoraPayService implements IKoraService {
     private String koraPaySecretKey;
     @Value("${webhook.url}")
     private String webhookUrl;
+    @Value("${notification.email}")
+    private String vestraPayEmail;
+    @Value("${kora.tsq.url}")
+    private String tsqUrl;
     private static final String FAILED  = "FAILED";
     private static final String SUCCESSFUL  = "SUCCESSFUL";
     private static final String PROVIDER_NAME  = "KORAPAY";
@@ -52,11 +59,11 @@ public class KoraPayService implements IKoraService {
     private final HttpUtil httpUtil;
     private final TransactionService transactionService;
     private final TransactionRepository transactionRepository;
-
-
+    private final ChargeService chargeService;
+    private final NotificationService notificationService;
 
     @Override
-    public Mono<Response<?>> payWithCard(KoraPayWithCardRequest request, String merchantId) {
+    public Mono<Response<?>> payWithCard(KoraPayWithCardRequest request, String merchantId,String userId) {
         String vestrapayReference = UUID.randomUUID().toString();
         Transaction tranLog = Transaction.builder()
                 .transactionReference(request.getReference())
@@ -64,31 +71,42 @@ public class KoraPayService implements IKoraService {
                 .transactionStatus(Status.ONGOING)
                 .paymentType(PaymentTypeEnum.CARD)
                 .vestraPayReference(request.getMetadata().getInternalRef())
-                .userId(merchantId)
+                .userId(userId)
+                .currency(request.getCurrency())
                 .vestraPayReference(vestrapayReference)
                 .merchantId(merchantId)
                 .providerName(PROVIDER_NAME)
                 .activityStatus("transaction initiated at "+new Date())
                 .pan(request.getCard().getNumber())
-                .narration(request.getCustomer().getEmail())
+                .narration("Card Payment from "+request.getCustomer().getName())
+                .metaData(Objects.isNull(request.getMetadata())?null:new Gson().toJson(request.getMetadata()))
                 .build();
-        return transactionService.saveTransaction(tranLog, PaymentTypeEnum.CARD,merchantId)
-                .flatMap(transaction -> {
-                    try {
-                        request.setRedirectUrl(webhookUrl.concat("KORAPAY"));
-                        return encrypt(EncryptDecryptRequest.builder()
-                                .key(koraPayEncryptionKey)
-                                .body(new ObjectMapper().writeValueAsString(request))
-                                .build()).flatMap(stringResponse -> chargeCard(stringResponse.getData(),merchantId, request.getReference()));
-                    } catch (Exception e) {
-                        return Mono.error(new RuntimeException(e));
-                    }
+
+        tranLog.setCurrency(request.getCurrency().substring(0,3));
+        log.info("incoming transaction log {}",tranLog);
+        return chargeService.getPaymentCharge(tranLog.getMerchantId(), PaymentMethod.CARD, ChargeCategory.PAY_IN,tranLog.getAmount())
+                .flatMap(fee -> {
+                    tranLog.setFee(fee);
+                    return transactionService.saveTransaction(tranLog, PaymentTypeEnum.CARD,merchantId)
+                            .flatMap(transaction -> {
+                                try {
+                                    request.setRedirectUrl(webhookUrl.concat("KORAPAY"));
+                                    return encrypt(EncryptDecryptRequest.builder()
+                                            .key(koraPayEncryptionKey)
+                                            .body(new ObjectMapper().writeValueAsString(request))
+                                            .build()).flatMap(stringResponse -> chargeCard(stringResponse.getData(),merchantId, request.getReference()));
+                                } catch (Exception e) {
+                                    return Mono.error(new RuntimeException(e));
+                                }
+                            }).switchIfEmpty(Mono.defer(() -> Mono.error(new CustomException(Response.builder()
+                                    .statusCode(HttpStatus.CONFLICT.value())
+                                    .message("Attempt for duplicate request forbidden")
+                                    .build(), HttpStatus.CONFLICT))));
                 });
 
     }
 
-    @Override
-    public Mono<Response<String>> decrypt(EncryptDecryptRequest request) {
+    private Mono<Response<String>> decrypt(EncryptDecryptRequest request) {
         if (request.getKey().isEmpty()||request.getBody().isEmpty()){
             return Mono.just(Response.<String>builder()
                             .statusCode(HttpStatus.BAD_REQUEST.value())
@@ -105,8 +123,7 @@ public class KoraPayService implements IKoraService {
                 .build());
     }
 
-    @Override
-    public Mono<Response<String>> encrypt(EncryptDecryptRequest request) throws Exception {
+    private Mono<Response<String>> encrypt(EncryptDecryptRequest request) throws Exception {
         if (request.getKey().isEmpty()||request.getBody().isEmpty()){
             return Mono.just(Response.<String>builder()
                     .statusCode(HttpStatus.BAD_REQUEST.value())
@@ -143,8 +160,10 @@ public class KoraPayService implements IKoraService {
                                                 else
                                                     transaction.setTransactionStatus(Status.FAILED);
 
-                                                return transactionRepository.save(transaction)
+                                                return transactionService.updateTransaction(transaction)
                                                         .flatMap(transaction1 -> {
+                                                            koraChargeCardResponse.setTransaction(transaction);
+                                                            notificationService.postNotification(transaction1);
                                                             return Mono.just(Response.builder()
                                                                     .data(koraChargeCardResponse)
                                                                     .message(SUCCESSFUL)
@@ -160,20 +179,32 @@ public class KoraPayService implements IKoraService {
                     else {
                         log.info("response not successful");
                         return clientResponse.bodyToMono(Map.class)
-                                .flatMap(map -> Mono.just(Response.builder()
-                                        .message(FAILED)
-                                        .errors(List.of(map.toString()))
-                                        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                        .statusCode(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                                        .build()));
+                                .flatMap(map ->{
+                                    return transactionRepository.findByTransactionReferenceAndMerchantId(reference,merchantId)
+                                                    .flatMap(transaction -> {
+                                                        transaction.setTransactionStatus(Status.FAILED);
+                                                        return transactionRepository.save(transaction)
+                                                                .flatMap(transaction1 -> {
+                                                                    notificationService.postNotification(transaction1);
+                                                                    return Mono.just(Response.builder()
+                                                                            .message(FAILED)
+                                                                                    .data(transaction1)
+                                                                            .errors(List.of(map.toString()))
+                                                                            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                                                            .statusCode(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                                                                            .build());
+                                                                });
+                                                    });
+
+                                });
                     }
                 });
     }
 
 
     @Override
-    public Mono<Response<Object>> authorizeCard(AuthorizeCardRequestPin request, String merchantId) {
-        return transactionRepository.findByMerchantIdAndTransactionReferenceOrProviderReference(merchantId,request.getTransactionReference(),request.getTransactionReference())
+    public Mono<Response<Object>> authorizeCard(AuthorizeCardRequestPin request, String merchantId, String userId) {
+        return transactionRepository.findByMerchantIdAndTransactionReferenceOrProviderReferenceAndUserId(merchantId,request.getTransactionReference(),request.getTransactionReference(),userId)
                 .flatMap(transaction -> {
                     request.setTransactionReference(transaction.getProviderReference());
                     return httpUtil.post(authorizeCardEndpoint,request,Map.of(AUTHORIZATION,BEARER+ koraPaySecretKey),90)
@@ -181,17 +212,19 @@ public class KoraPayService implements IKoraService {
                                 if (clientResponse.statusCode().is2xxSuccessful()){
                                     return clientResponse.bodyToMono(TransactionRootResponse.class)
                                             .flatMap(transactionRootResponse -> {
+                                                log.info("response from authorize card is {}",transactionRootResponse);
                                                 if (transactionRootResponse.isStatus() && transactionRootResponse.getData().getStatus().equalsIgnoreCase("success")){
                                                     transaction.setTransactionStatus(Status.SUCCESSFUL);
                                                 } else if (transactionRootResponse.isStatus() && transactionRootResponse.getData().getStatus().equalsIgnoreCase("processing")) {
                                                     transaction.setTransactionStatus(Status.PROCESSING);
 
                                                 }
-                                                transaction.setNarration(transactionRootResponse.getData().getResponseMessage());
+//                                                transaction.setNarration(transactionRootResponse.getData().getResponseMessage());
                                                 transaction.setProviderReference(transactionRootResponse.getData().getTransactionReference());
 
-                                                return transactionRepository.save(transaction)
+                                                return transactionService.updateTransaction(transaction)
                                                         .flatMap(transaction1 -> {
+                                                            notificationService.postNotification(transaction1);
                                                             return Mono.just(Response.builder()
                                                                     .data(transactionRootResponse)
                                                                     .message(SUCCESSFUL)
@@ -220,14 +253,19 @@ public class KoraPayService implements IKoraService {
                                     .message(FAILED)
                                     .errors(List.of("Transaction not found"))
                                     .build())));
-                });
+                }).switchIfEmpty(Mono.defer(() -> Mono.just(Response.builder()
+                        .status(HttpStatus.NOT_FOUND)
+                        .statusCode(HttpStatus.NOT_FOUND.value())
+                        .message(FAILED)
+                        .errors(List.of("Transaction not found"))
+                        .build())));
 
 
     }
 
     @Override
-    public Mono<Response<Object>> authorizeCardOtp(AuthorizeCardRequestOTP request, String merchantId) {
-        return transactionRepository.findByMerchantIdAndTransactionReferenceOrProviderReference(merchantId,request.getTransactionReference(),request.getTransactionReference())
+    public Mono<Response<Object>> authorizeCardOtp(AuthorizeCardRequestOTP request, String merchantId, String userId) {
+        return transactionRepository.findByMerchantIdAndTransactionReferenceOrProviderReferenceAndUserId(merchantId,request.getTransactionReference(),request.getTransactionReference(),userId)
                 .flatMap(transaction -> {
                     request.setTransactionReference(transaction.getProviderReference());
                     return httpUtil.post(authorizeCardEndpoint,request,Map.of(AUTHORIZATION,BEARER+ koraPaySecretKey),90)
@@ -235,17 +273,20 @@ public class KoraPayService implements IKoraService {
                                 if (clientResponse.statusCode().is2xxSuccessful()){
                                     return clientResponse.bodyToMono(TransactionRootResponse.class)
                                             .flatMap(transactionRootResponse -> {
+                                                log.info("response from authorizeCard OTP is {}",transactionRootResponse);
+
                                                 if (transactionRootResponse.isStatus() && transactionRootResponse.getData().getStatus().equalsIgnoreCase("success")){
                                                     transaction.setTransactionStatus(Status.SUCCESSFUL);
                                                 } else if (transactionRootResponse.isStatus() && transactionRootResponse.getData().getStatus().equalsIgnoreCase("processing")) {
                                                     transaction.setTransactionStatus(Status.PROCESSING);
 
                                                 }
-                                                transaction.setNarration(transactionRootResponse.getData().getResponseMessage());
+//                                                transaction.setNarration(transactionRootResponse.getData().getResponseMessage());
                                                 transaction.setProviderReference(transactionRootResponse.getData().getTransactionReference());
 
-                                                return transactionRepository.save(transaction)
+                                                return transactionService.updateTransaction(transaction)
                                                         .flatMap(transaction1 -> {
+                                                            notificationService.postNotification(transaction1);
                                                             return Mono.just(Response.builder()
                                                                     .data(transactionRootResponse)
                                                                     .message(SUCCESSFUL)
@@ -274,12 +315,17 @@ public class KoraPayService implements IKoraService {
                                     .message(FAILED)
                                     .errors(List.of("Transaction not found"))
                                     .build())));
-                });
+                }).switchIfEmpty(Mono.defer(() -> Mono.just(Response.builder()
+                .status(HttpStatus.NOT_FOUND)
+                .statusCode(HttpStatus.NOT_FOUND.value())
+                .message(FAILED)
+                .errors(List.of("Transaction not found"))
+                .build())));
     }
 
     @Override
-    public Mono<Response<Object>> authorizeCardAvs(AuthorizeCardRequestAVS request, String merchantId) {
-        return transactionRepository.findByMerchantIdAndTransactionReferenceOrProviderReference(merchantId,request.getTransactionReference(),request.getTransactionReference())
+    public Mono<Response<Object>> authorizeCardAvs(AuthorizeCardRequestAVS request, String merchantId, String userId) {
+        return transactionRepository.findByMerchantIdAndTransactionReferenceOrProviderReferenceAndUserId(merchantId,request.getTransactionReference(),request.getTransactionReference(),userId)
                 .flatMap(transaction -> {
                     request.setTransactionReference(transaction.getProviderReference());
                     return httpUtil.post(authorizeCardEndpoint,request,Map.of(AUTHORIZATION,BEARER+ koraPaySecretKey),90)
@@ -287,17 +333,20 @@ public class KoraPayService implements IKoraService {
                                 if (clientResponse.statusCode().is2xxSuccessful()){
                                     return clientResponse.bodyToMono(TransactionRootResponse.class)
                                             .flatMap(transactionRootResponse -> {
+                                                log.info("response from authorizeCard AVS is {}",transactionRootResponse);
+
                                                 if (transactionRootResponse.isStatus() && transactionRootResponse.getData().getStatus().equalsIgnoreCase("success")){
                                                     transaction.setTransactionStatus(Status.SUCCESSFUL);
                                                 } else if (transactionRootResponse.isStatus() && transactionRootResponse.getData().getStatus().equalsIgnoreCase("processing")) {
                                                     transaction.setTransactionStatus(Status.PROCESSING);
 
                                                 }
-                                                transaction.setNarration(transactionRootResponse.getData().getResponseMessage());
                                                 transaction.setProviderReference(transactionRootResponse.getData().getTransactionReference());
 
-                                                return transactionRepository.save(transaction)
+                                                return transactionService.updateTransaction(transaction)
                                                         .flatMap(transaction1 -> {
+                                                            notificationService.postNotification(transaction1);
+
                                                             return Mono.just(Response.builder()
                                                                     .data(transactionRootResponse)
                                                                     .message(SUCCESSFUL)
@@ -326,13 +375,18 @@ public class KoraPayService implements IKoraService {
                                     .message(FAILED)
                                     .errors(List.of("Transaction not found"))
                                     .build())));
-                });
+                }).switchIfEmpty(Mono.defer(() -> Mono.just(Response.builder()
+                        .status(HttpStatus.NOT_FOUND)
+                        .statusCode(HttpStatus.NOT_FOUND.value())
+                        .message(FAILED)
+                        .errors(List.of("Transaction not found"))
+                        .build())));
 
     }
 
     @Override
-    public Mono<Response<Object>> authorizeCardPhone(AuthorizeCardRequestPhone request, String merchantId) {
-        return transactionRepository.findByMerchantIdAndTransactionReferenceOrProviderReference(merchantId,request.getTransactionReference(),request.getTransactionReference())
+    public Mono<Response<Object>> authorizeCardPhone(AuthorizeCardRequestPhone request, String merchantId, String userId) {
+        return transactionRepository.findByMerchantIdAndTransactionReferenceOrProviderReferenceAndUserId(merchantId,request.getTransactionReference(),request.getTransactionReference(),userId)
                 .flatMap(transaction -> {
                     request.setTransactionReference(transaction.getProviderReference());
                     return httpUtil.post(authorizeCardEndpoint,request,Map.of(AUTHORIZATION,BEARER+ koraPaySecretKey),90)
@@ -340,17 +394,20 @@ public class KoraPayService implements IKoraService {
                                 if (clientResponse.statusCode().is2xxSuccessful()){
                                     return clientResponse.bodyToMono(TransactionRootResponse.class)
                                             .flatMap(transactionRootResponse -> {
+                                                log.info("response from authorizeCard Phone is {}",transactionRootResponse);
+
                                                 if (transactionRootResponse.isStatus() && transactionRootResponse.getData().getStatus().equalsIgnoreCase("success")){
                                                     transaction.setTransactionStatus(Status.SUCCESSFUL);
                                                 } else if (transactionRootResponse.isStatus() && transactionRootResponse.getData().getStatus().equalsIgnoreCase("processing")) {
                                                     transaction.setTransactionStatus(Status.PROCESSING);
 
                                                 }
-                                                transaction.setNarration(transactionRootResponse.getData().getResponseMessage());
                                                 transaction.setProviderReference(transactionRootResponse.getData().getTransactionReference());
 
-                                                return transactionRepository.save(transaction)
+                                                return transactionService.updateTransaction(transaction)
                                                         .flatMap(transaction1 -> {
+                                                            notificationService.postNotification(transaction1);
+
                                                             return Mono.just(Response.builder()
                                                                     .data(transactionRootResponse)
                                                                     .message(SUCCESSFUL)
@@ -379,12 +436,17 @@ public class KoraPayService implements IKoraService {
                                     .message(FAILED)
                                     .errors(List.of("Transaction not found"))
                                     .build())));
-                });
+                }).switchIfEmpty(Mono.defer(() -> Mono.just(Response.builder()
+                        .status(HttpStatus.NOT_FOUND)
+                        .statusCode(HttpStatus.NOT_FOUND.value())
+                        .message(FAILED)
+                        .errors(List.of("Transaction not found"))
+                        .build())));
     }
 
     @Override
-    public Mono<Response<Object>> verifyTransaction(String reference, String merchantId) {
-        return transactionRepository.findByMerchantIdAndTransactionReferenceOrProviderReference(merchantId,reference,reference)
+    public Mono<Response<Object>> verifyTransaction(String reference, String merchantId, String userId) {
+        return transactionRepository.findByMerchantIdAndTransactionReferenceOrProviderReferenceAndUserId(merchantId,reference,reference,userId)
                 .flatMap(transaction -> {
                     return httpUtil.get(verifyPayment.concat(reference),Map.of("Authorization","Bearer "+ koraPayEncryptionKey),90)
                             .flatMap(clientResponse -> {
@@ -434,8 +496,10 @@ public class KoraPayService implements IKoraService {
 
     }
 
+
+
     @Override
-    public Mono<Response<Object>> payWithTransfer(PayWithTransferDTO request,String merchantId) {
+    public Mono<Response<Object>> payWithTransfer(PayWithTransferDTO request,String merchantId,String userId) {
         request.setNotificationUrl(webhookUrl.concat(PROVIDER_NAME));
         Transaction tranLog = Transaction.builder()
                 .transactionReference(request.getReference())
@@ -444,43 +508,108 @@ public class KoraPayService implements IKoraService {
                 .pan("TRANSFER")
                 .cardScheme("TRANSFER")
                 .paymentType(PaymentTypeEnum.TRANSFER)
-                .userId(merchantId)
+                .userId(userId)
+                .currency(request.getCurrency())
                 .vestraPayReference(UUID.randomUUID().toString())
                 .merchantId(merchantId)
                 .providerName(PROVIDER_NAME)
                 .activityStatus("transaction initiated at "+new Date())
                 .narration(request.getCustomer().getEmail())
+                .userId(request.getCustomer().getEmail())
+                .metaData(request.getMetaData())
                 .build();
-        return transactionService.saveTransaction(tranLog,PaymentTypeEnum.TRANSFER, merchantId)
-                .flatMap(transaction -> {
-                    return httpUtil.post(payWithTransferUrl,request,Map.of("Authorization", "Bearer "+koraPaySecretKey),90)
-                            .flatMap(clientResponse -> {
-                                if (clientResponse.statusCode().is2xxSuccessful()){
-                                    return clientResponse.bodyToMono(PayWithTransferResponseDTO.class)
-                                            .flatMap(payWithTransferResponseDTO -> transactionRepository.findByTransactionReferenceAndMerchantId(request.getReference(),merchantId)
-                                                    .flatMap(transaction1 -> {
-                                                        transaction1.setTransactionStatus(Status.PROCESSING);
-                                                        transaction1.setNarration(payWithTransferResponseDTO.getData().getNarration());
-                                                        transaction1.setPan(payWithTransferResponseDTO.getData().getBankAccount().getAccountName()+ " " +payWithTransferResponseDTO.getData().getBankAccount().getBankName());
-                                                        return transactionRepository.save(transaction1)
-                                                                .flatMap(transaction2 -> Mono.just(Response.builder()
-                                                                        .status(HttpStatus.OK)
-                                                                        .statusCode(HttpStatus.OK.value())
-                                                                        .message(SUCCESSFUL)
-                                                                        .data(payWithTransferResponseDTO)
-                                                                        .build()));
-                                                    }));
-                                }
+        request.getCustomer().setEmail(vestraPayEmail);
+        return chargeService.getPaymentCharge(tranLog.getMerchantId(),PaymentMethod.TRANSFER,ChargeCategory.PAY_IN,tranLog.getAmount())
+                .flatMap(fee -> {
+                    tranLog.setFee(fee);
+                    return transactionService.saveTransaction(tranLog,PaymentTypeEnum.TRANSFER, merchantId)
+                            .flatMap(transaction -> {
+                                return httpUtil.post(payWithTransferUrl,request,Map.of("Authorization", "Bearer "+koraPaySecretKey),90)
+                                        .flatMap(clientResponse -> {
+                                            if (clientResponse.statusCode().is2xxSuccessful()){
+                                                return clientResponse.bodyToMono(PayWithTransferResponseDTO.class)
+                                                        .flatMap(payWithTransferResponseDTO -> transactionRepository.findByTransactionReferenceAndMerchantId(request.getReference(),merchantId)
+                                                                .flatMap(transaction1 -> {
+                                                                    transaction1.setTransactionStatus(Status.PROCESSING);
+                                                                    transaction1.setNarration(payWithTransferResponseDTO.getData().getNarration());
+                                                                    transaction1.setPan(payWithTransferResponseDTO.getData().getBankAccount().getAccountName()+ " " +payWithTransferResponseDTO.getData().getBankAccount().getBankName());
+                                                                    payWithTransferResponseDTO.getData().setTransaction(transaction1);
+                                                                    return transactionRepository.save(transaction1)
+                                                                            .flatMap(transaction2 -> {
+                                                                                if (Objects.nonNull(payWithTransferResponseDTO.getData().getFee()))
+                                                                                    payWithTransferResponseDTO.getData().setFee(transaction1.getFee());
+                                                                                return Mono.just(Response.builder()
+                                                                                        .status(HttpStatus.OK)
+                                                                                        .statusCode(HttpStatus.OK.value())
+                                                                                        .message(SUCCESSFUL)
+                                                                                        .data(payWithTransferResponseDTO)
+                                                                                        .build());
+                                                                            });
+                                                                }));
+                                            }
 
-                                return clientResponse.bodyToMono(Map.class)
-                                        .flatMap(map -> Mono.just(Response.builder()
-                                                .data(map)
-                                                .message(FAILED)
-                                                .statusCode(HttpStatus.EXPECTATION_FAILED.value())
-                                                .status(HttpStatus.EXPECTATION_FAILED)
-                                                .build()));
+                                            return clientResponse.bodyToMono(Map.class)
+                                                    .flatMap(map -> {
+                                                        log.error("error performing pay with transfer for id {} error is {}", tranLog.getTransactionReference(),map);
+                                                        Transaction tranlog= (Transaction)transaction;
+                                                        tranlog.setTransactionStatus(Status.FAILED);
+                                                        return transactionService.updateTransaction(tranlog)
+                                                                .flatMap(transaction1 -> {
+                                                                    map.put("transaction",transaction1);
+                                                                    return Mono.just(Response.builder()
+                                                                            .status(HttpStatus.EXPECTATION_FAILED)
+                                                                            .statusCode(HttpStatus.EXPECTATION_FAILED.value())
+                                                                            .message(FAILED)
+                                                                            .data(map)
+                                                                            .build());
+                                                                });
+                                                    });
+                                        });
                             });
                 });
+
+
+    }
+
+    @Override
+    public Mono<Transaction> korapayTransactionStatusCheck(Transaction transaction) {
+        return httpUtil.get(tsqUrl.concat(transaction.getTransactionReference()),Map.of("Authorization", "Bearer "+koraPaySecretKey),90)
+                .flatMap(clientResponse -> {
+                    log.info("ClientResponse code:: {}", clientResponse.statusCode().value());
+                    if (clientResponse.statusCode().is2xxSuccessful()){
+                        return clientResponse.bodyToMono(PayWithTransferResponseDTO.class)
+                                .flatMap(payWithTransferResponseDTO -> {
+                                    if (payWithTransferResponseDTO.isStatus() && Objects.nonNull(payWithTransferResponseDTO.getData())){
+                                        if (Objects.nonNull(payWithTransferResponseDTO.getData().getStatus())){
+                                            String status = payWithTransferResponseDTO.getData().getStatus();
+                                            if (status.equalsIgnoreCase("success")){
+                                                transaction.setTransactionStatus(Status.SUCCESSFUL);
+                                                notificationService.postNotification(transaction);
+                                            }
+                                            if (status.equalsIgnoreCase("failed"))
+                                                transaction.setTransactionStatus(Status.FAILED);
+                                            if (status.equalsIgnoreCase("expired"))
+                                                transaction.setTransactionStatus(Status.EXPIRED);
+
+                                        }
+                                    }
+                                    log.info("response for TSQ is {}", payWithTransferResponseDTO);
+                                    return Mono.just(transaction);
+
+                                });
+                    }
+
+                    return clientResponse.bodyToMono(Object.class)
+                            .flatMap(map -> {
+                                log.error("error performing transfer TSQ. error is {}",map.toString());
+//                                transaction.setTransactionStatus(Status.FAILED);
+                                return Mono.just(transaction);
+                            });
+                }).onErrorResume(throwable -> {
+//                    transaction.setTransactionStatus(Status.FAILED);
+                    return Mono.just(transaction);
+                });
+
 
     }
 

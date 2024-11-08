@@ -22,15 +22,16 @@ public class MpgsService {
 
     private static final int MASTERCARD_AUTH_LIMIT = 25;
 
-    public Mono<MasterCardCreateSessionResponse> createSession(String merchantId){
+    public Mono<MasterCardCreateSessionResponse> createSession(String vestrapayMpgsMerchantId){
         log.info("performing create session on mastercard api");
-        return client.post("/merchant/" + merchantId + "/session", MasterCardCreateSessionRequest.builder()
-                        .session(MasterCardSession.builder()
-                                .authenticationLimit(MASTERCARD_AUTH_LIMIT).build())
-                        .build())
+
+        MasterCardCreateSessionRequest sessionRequest = MasterCardCreateSessionRequest.builder()
+                .session(MasterCardSession.builder().authenticationLimit(MASTERCARD_AUTH_LIMIT).build()).build();
+
+        log.info("session request body is {}",sessionRequest);
+        return client.post("/merchant/" + vestrapayMpgsMerchantId + "/session", sessionRequest)
                         .flatMap(clientResponse -> {
                             log.info("ClientResponse code:: {}",clientResponse.statusCode().value());
-
                             if (clientResponse.statusCode().is2xxSuccessful()) {
                                 return clientResponse.bodyToMono(MasterCardCreateSessionResponse.class)
                                         .flatMap(response -> {
@@ -51,9 +52,7 @@ public class MpgsService {
                                                     .statusCode(HttpStatus.valueOf(clientResponse.statusCode().value()).value())
                                                     .build(), HttpStatus.valueOf(clientResponse.statusCode().value())));
                                         });
-
                             }
-
                         });
     }
 
@@ -98,11 +97,14 @@ public class MpgsService {
                             }
                             else {
                                 return clientResponse.bodyToMono(Map.class)
-                                        .flatMap(map -> Mono.error(new CustomException(Response.builder()
-                                                .statusCode(clientResponse.statusCode().value())
-                                                .status(HttpStatus.valueOf(clientResponse.statusCode().value()))
-                                                .data(map)
-                                                .build(), HttpStatus.valueOf(clientResponse.statusCode().value()))));
+                                        .flatMap(map -> {
+                                            log.error("error making payment to MPGS. error response is {}",map);
+                                            return Mono.error(new CustomException(Response.builder()
+                                                    .statusCode(clientResponse.statusCode().value())
+                                                    .status(HttpStatus.valueOf(clientResponse.statusCode().value()))
+                                                    .data(map)
+                                                    .build(), HttpStatus.valueOf(clientResponse.statusCode().value())));
+                                        });
                             }
 
 

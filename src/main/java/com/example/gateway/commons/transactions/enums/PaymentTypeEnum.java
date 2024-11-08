@@ -1,0 +1,18 @@
+package com.example.gateway.commons.transactions.enums;
+
+public enum PaymentTypeEnum {
+    CARD("CARD"),
+    PAYMENT_LINK("PAYMENT LINK"),
+    TRANSFER("TRANSFER"),
+    USSD("USSD");
+
+    private final String description;
+
+    PaymentTypeEnum(String description) {
+        this.description = description;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+}

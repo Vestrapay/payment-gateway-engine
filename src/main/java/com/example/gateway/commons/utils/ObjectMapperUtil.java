@@ -1,13 +1,14 @@
 package com.example.gateway.commons.utils;
 
-import com.example.gateway.commons.dto.card.CardPaymentRequestDTO;
-import com.example.gateway.commons.dto.transfer.TransferPaymentRequestDTO;
+import com.example.gateway.api.card.dtos.CardPaymentRequestDTO;
+import com.example.gateway.api.transfer.dtos.TransferPaymentRequestDTO;
 import com.example.gateway.integrations.kora.dtos.card.*;
 import com.example.gateway.integrations.kora.dtos.transfer.PayWithTransferDTO;
 import com.example.gateway.integrations.mastercard.dto.CardDetails;
 import com.example.gateway.integrations.mastercard.dto.Currency;
 import com.example.gateway.integrations.mastercard.dto.PaymentByCardRequestVO;
 
+import java.util.Objects;
 import java.util.UUID;
 
 public class ObjectMapperUtil {
@@ -52,13 +53,14 @@ public class ObjectMapperUtil {
                 .build();
     }
 
-    public static PayWithTransferDTO toKoraPayTransferDTO(TransferPaymentRequestDTO request, String merchantId){
+    public static PayWithTransferDTO toKoraPayTransferDTO(TransferPaymentRequestDTO request){
         return PayWithTransferDTO.builder()
                 .notificationUrl("")
                 .currency(request.getCurrency())
                 .reference(request.getTransactionReference().isEmpty()?UUID.randomUUID().toString(): request.getTransactionReference())
                 .customer(request.getCustomer())
                 .amount(request.getAmount())
+                .metaData(Objects.isNull(request.getMetaData())?null:request.getMetaData().toString())
                 .build();
     }
 }

@@ -4,8 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter
-@Setter
+@lombok.Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class TransactionRootResponse {
     private boolean status;

@@ -1,7 +1,7 @@
 package com.example.gateway.integrations.paymentlink.repository;
 
 import com.example.gateway.integrations.paymentlink.entity.PaymentLink;
-import com.example.gateway.transactions.enums.Status;
+import com.example.gateway.commons.transactions.enums.Status;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;

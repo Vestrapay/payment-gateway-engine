@@ -12,7 +12,7 @@ public interface IWemaBankService {
     Mono<WemaAccountLookupResponse> accountLookup(AccountLookupRequest request);
     Mono<WemaTransactionDTO> tranasctionQuery(WemaTransactionQueryRequest request);
 
-    Mono<Response<Object>> payWithTransfer(String merchantId, PayWithTransferDTO transferPaymentRequestDTO);
+    Mono<Response<Object>> payWithTransfer(String merchantId, PayWithTransferDTO transferPaymentRequestDTO,String customerId);
 
     Mono<Response<String>>getVestraPoolAccountBalance(String accountNumber);
     Mono<Response<List<Object>>>getStatement(GetStatementDTO request);

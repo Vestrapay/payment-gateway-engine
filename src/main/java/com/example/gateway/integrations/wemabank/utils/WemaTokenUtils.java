@@ -61,7 +61,7 @@ public class WemaTokenUtils {
 //    @Scheduled(fixedRate = 36000)
     public void refreshToken(){
         log.info("refreshing token");
-        if (profile.equalsIgnoreCase("jobs")){
+        if (profile.equalsIgnoreCase("cron")){
             getToken().flatMap(wemaTokenResponseResponse -> {
                 if (wemaTokenResponseResponse.getStatus().is2xxSuccessful()){
                     String token = wemaTokenResponseResponse.getData().getToken();
