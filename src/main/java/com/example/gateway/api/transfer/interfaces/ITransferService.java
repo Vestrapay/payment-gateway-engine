@@ -5,7 +5,7 @@ import com.example.gateway.commons.utils.Response;
 import reactor.core.publisher.Mono;
 
 public interface ITransferService {
-    Mono<Response<Object>> payWithTransfer(String authorization, String merchantId, TransferPaymentRequestDTO request, String customerId);
-    Mono<Response<Object>> doTSQ(String secret, String merchantId, String reference,String customerId);
+    Mono<Response<Object>> payWithTransfer(TransferPaymentRequestDTO request, String merchantId, String userId);
+    String getName();
 
 }

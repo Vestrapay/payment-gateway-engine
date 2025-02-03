@@ -6,6 +6,7 @@ import com.example.gateway.commons.transactions.enums.PaymentTypeEnum;
 import com.example.gateway.commons.transactions.enums.Status;
 import com.example.gateway.commons.transactions.models.Transaction;
 import com.example.gateway.commons.transactions.reporitory.TransactionRepository;
+import com.example.gateway.integrations.paymentlink.repository.PaymentLinkRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,27 +20,43 @@ import java.util.UUID;
 public class TransactionService {
     private final TransactionRepository transactionRepository;
     private final CallbackService callbackService;
-    public Mono<Object> saveTransaction(Transaction transaction, PaymentTypeEnum typeEnum, String merchantId){
+    private final PaymentLinkRepository paymentLinkRepository;
+    public Mono<Transaction> saveTransaction(Transaction transaction, PaymentTypeEnum typeEnum, String merchantId){
         transaction.setUuid(UUID.randomUUID().toString());
         transaction.setTransactionStatus(Status.ONGOING);
         transaction.setPaymentType(typeEnum);
         transaction.setSettlementStatus(Status.PENDING);
 
         if (typeEnum.equals(PaymentTypeEnum.CARD)){
-            transaction.setCardScheme(PaymentUtils.detectCardScheme(transaction.getPan()));
             transaction.setPan(transaction.getPan().substring(0,6).concat("******").concat(transaction.getPan().substring(transaction.getPan().length()-4)));
 
         }
         return transactionRepository.findByTransactionReferenceAndMerchantId(transaction.getTransactionReference(),merchantId)
                 .flatMap(transaction1 -> {
-                    log.error("duplicate transaction for merchant");
-                    return Mono.empty();
+                    //incase payment has not been done before
+                    if (transaction1.getAmount().equals(transaction.getAmount())&& transaction1.getTransactionStatus()!=Status.SUCCESSFUL){
+                        return Mono.just(transaction1);
+                    }
+                    else {
+                        log.error("duplicate transaction for merchant");
+                        return Mono.error(() -> new Throwable("duplicate transaction. perform a status check with your transaction reference "+transaction.getTransactionReference()));
+                    }
+
                 })
                 .switchIfEmpty(Mono.defer(() -> transactionRepository.save(transaction)
                         .flatMap(transaction1 -> {
                             log.info("initial transaction saved");
                             return Mono.just(transaction1);
-                        })));
+                        })))
+                .doFinally(signalType -> {
+                    Mono.fromRunnable(() -> {
+                        paymentLinkRepository.findByMerchantIdAndTransactionId(transaction.getMerchantId(),transaction.getTransactionReference())
+                                .doOnNext(paymentLinks -> {
+                                    paymentLinks.setStatus(Status.PROCESSING);
+                                    paymentLinkRepository.updatePaymentLinkByMerchantId(paymentLinks.getId(),Status.PROCESSED.name()).subscribe();
+                                }).subscribe();
+                    }).subscribe();
+                });
 
     }
 

@@ -29,6 +29,8 @@ public class Charge {
     private String uuid;
     @Column("merchant_id")
     private String merchantId;
+    @Column("currency")
+    private String currency;
     @Enumerated(EnumType.STRING)
     @Column("payment_method")
     private PaymentMethod paymentMethod;

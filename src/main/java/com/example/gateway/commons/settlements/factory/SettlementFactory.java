@@ -11,11 +11,10 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SettlementFactory {
     private final List<ISettlementService> settlementService;
-    @Value("${settlement.provider}")
-    private String settlementProvider;
 
-    public ISettlementService getSettlementService(){
-        return settlementService.stream().filter(iSettlementService -> iSettlementService.getProvider().equalsIgnoreCase(settlementProvider)).findFirst()
+
+    public ISettlementService getSettlementService(String provider){
+        return settlementService.stream().filter(iSettlementService -> iSettlementService.getProvider().equalsIgnoreCase(provider)).findFirst()
                 .orElseThrow(() -> {throw new RuntimeException("Settlement provider implementation not found");});
 
     }

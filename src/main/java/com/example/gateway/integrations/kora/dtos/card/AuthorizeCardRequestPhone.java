@@ -10,4 +10,7 @@ public class AuthorizeCardRequestPhone {
     @JsonProperty("transaction_reference")
     private String transactionReference;
     private AuthorizationPhone authorization;
+    private String currency = "NGN";
+
+
 }

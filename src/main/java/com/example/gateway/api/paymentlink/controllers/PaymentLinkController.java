@@ -51,8 +51,8 @@ public class PaymentLinkController {
     }
 
     @GetMapping("paylink/{linkId}")
-    public Mono<ResponseEntity<Response<?>>>viewPaymentLinkStatus(@PathVariable("linkId")String linkId){
-        return paymentLinkService.getPaymentLinkDetails(linkId)
+    public Mono<ResponseEntity<Response<?>>>viewPaymentLinkStatus(@PathVariable("linkId")String linkId,@RequestParam("reference")String reference){
+        return paymentLinkService.getPaymentLinkDetails(linkId,reference)
                 .map(response -> {
                     Response<?> finalResponse = Response.builder()
                             .statusCode(response.getStatusCode())

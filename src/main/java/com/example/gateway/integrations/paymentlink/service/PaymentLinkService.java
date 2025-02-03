@@ -16,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -48,10 +49,10 @@ public class PaymentLinkService implements IPaymentLinkService {
                         else
                             finalPath = path;
 
-                        String finalPath1 = finalPath;
+                        String finalPath1 = finalPath+"?reference="+reference;
                         return keysRepository.findByUserIdAndSecretKeyAndKeyUsage(merchantId,secret,environment)
                                 .flatMap(keys -> {
-                                    return paymentLinkRepository.findByMerchantIdAndPath(merchantId, finalPath1)
+                                    return paymentLinkRepository.findByMerchantIdAndPathAndStatus(merchantId, finalPath1,Status.INITIATED)
                                             .flatMap(paymentLink -> {
                                                 log.error("payment link already exist with invoice number for merchant");
                                                 return Mono.just(Response.builder()
@@ -75,10 +76,17 @@ public class PaymentLinkService implements IPaymentLinkService {
                                                         .customerEmail(request.getCustomer().getEmail())
                                                         .customerName(request.getCustomer().getName())
                                                         .params(request.getAdditionalData().toString())
+                                                        .currency(request.getCurrency())
                                                         .merchantId(merchantId)
                                                         .status(Status.INITIATED)
                                                         .expiryDate(LocalDateTime.now().plusDays(request.getDaysActive()))
+                                                        .successRedirectUrl(request.getSuccessUrl())
+                                                        .failedRedirectUrl(request.getFailedUrl())
                                                         .build();
+
+                                                if (request.getDaysActive()==0){
+                                                    paymentLink.setExpiryDate(LocalDateTime.now().plusMinutes(10));
+                                                }
                                                 log.info("payment link DTO {}",paymentLink);
                                                 return paymentLinkRepository.save(paymentLink)
                                                         .flatMap(paymentLink1 -> {
@@ -151,7 +159,7 @@ public class PaymentLinkService implements IPaymentLinkService {
     @Override
     public Mono<Response<Object>> fetchAllLinksForMerchant(String merchantId, String secret, String userId) {
         return keysRepository.findByUserIdAndSecretKeyAndKeyUsage(merchantId,secret,environment).flatMap(keys -> {
-            return paymentLinkRepository.findByMerchantId(merchantId)
+            return paymentLinkRepository.findByMerchantIdOrderByDateCreatedDesc(merchantId)
                     .collectList()
                     .flatMap(paymentLinks -> {
                         return Mono.just(Response.builder()
@@ -173,46 +181,54 @@ public class PaymentLinkService implements IPaymentLinkService {
     }
 
     @Override
-    public Mono<ResponseDTO<Object>> getPaymentLinkDetails(String linkId) {
-        // TODO: 10/12/2023 implement send FE base URL to send email notification to customer
-        return paymentLinkRepository.findByPathAndStatus(linkId,Status.INITIATED)
-                .collectList()
+    public Mono<ResponseDTO<Object>> getPaymentLinkDetails(String linkId, String reference) {
+        linkId = linkId+"?reference="+reference;
+        return paymentLinkRepository.findByPathAndStatusAndTransactionId(linkId,Status.INITIATED, reference)
                 .flatMap(paymentLink -> {
-                    if (paymentLink.isEmpty()){
-                        return Mono.just(ResponseDTO.builder()
-                                .status(HttpStatus.OK)
-                                .statusCode(HttpStatus.OK.value())
-                                .data(paymentLink)
-                                .message(SUCCESS)
-                                .build());
-                    }
-                    else{
-                        return keysRepository.findByUserIdAndKeyUsage(paymentLink.get(0).getMerchantId(), environment.toUpperCase())
-                                .flatMap(keys -> {
-                                    return Mono.just(ResponseDTO.builder()
-                                            .status(HttpStatus.OK)
-                                            .statusCode(HttpStatus.OK.value())
-                                            .data(paymentLink)
-                                                    .keys(keys)
-                                            .message(SUCCESS)
-                                            .build());
-                                }).switchIfEmpty(Mono.defer(() -> {
+                    return keysRepository.findByUserIdAndKeyUsage(paymentLink.getMerchantId(), environment.toUpperCase())
+                            .flatMap(keys -> {
+                                if (LocalDateTime.now().isAfter(paymentLink.getExpiryDate())) {
+                                    paymentLink.setStatus(Status.EXPIRED);
+                                    paymentLinkRepository.updatePaymentLinkByMerchantId(paymentLink.getId(),Status.EXPIRED.name()).subscribe();
                                     return Mono.just(ResponseDTO.builder()
                                             .status(HttpStatus.NOT_FOUND)
-                                            .errors(List.of(environment+" keys not found for merchant. generate "+ environment+" keys"))
                                             .statusCode(HttpStatus.NOT_FOUND.value())
                                             .message(FAILED)
+                                            .errors(List.of("payment link has expired"))
                                             .build());
-                                }));
-                    }
+                                }
+
+                                return Mono.just(ResponseDTO.builder()
+                                        .status(HttpStatus.OK)
+                                        .statusCode(HttpStatus.OK.value())
+                                        .data(paymentLink)
+                                        .keys(keys)
+                                        .message(SUCCESS)
+                                        .build());
+                            }).switchIfEmpty(Mono.defer(() -> {
+                                return Mono.just(ResponseDTO.builder()
+                                        .status(HttpStatus.NOT_FOUND)
+                                        .errors(List.of(environment+" keys not found for merchant. generate "+ environment+" keys"))
+                                        .statusCode(HttpStatus.NOT_FOUND.value())
+                                        .message(FAILED)
+                                        .build());
+                            }));
 
                 }).switchIfEmpty(Mono.defer(() -> {
                     return Mono.just(ResponseDTO.builder()
                             .status(HttpStatus.NOT_FOUND)
-                                    .errors(List.of("payment link not found"))
+                                    .errors(List.of("payment link not found/Expired. Kindly regenerate"))
                             .statusCode(HttpStatus.NOT_FOUND.value())
                             .message(FAILED)
                             .build());
-                }));
+                })).onErrorResume(throwable -> {
+                    log.error("error is {}",throwable.getMessage());
+                    return Mono.just(ResponseDTO.builder()
+                            .status(HttpStatus.NOT_FOUND)
+                            .errors(List.of("payment link not found"))
+                            .statusCode(HttpStatus.NOT_FOUND.value())
+                            .message(FAILED)
+                            .build());
+                });
     }
 }

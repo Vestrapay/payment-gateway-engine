@@ -1,11 +1,13 @@
 package com.example.gateway.integrations.mastercard.service;
 
+import com.example.gateway.api.card.dtos.CardPaymentRequestDTO;
+import com.example.gateway.api.card.interfaces.ICardService;
 import com.example.gateway.commons.charge.enums.ChargeCategory;
 import com.example.gateway.commons.charge.enums.PaymentMethod;
 import com.example.gateway.commons.charge.service.ChargeService;
 import com.example.gateway.commons.notificatioin.NotificationService;
-import com.example.gateway.integrations.kora.dtos.card.Data;
-import com.example.gateway.integrations.kora.dtos.card.KoraChargeCardResponse;
+import com.example.gateway.commons.utils.ObjectMapperUtil;
+import com.example.gateway.integrations.kora.dtos.card.*;
 import com.example.gateway.integrations.mastercard.dto.PaymentByCardRequestVO;
 import com.example.gateway.integrations.mastercard.dto.PaymentByCardResponseVO;
 import com.example.gateway.commons.exceptions.CustomException;
@@ -13,7 +15,6 @@ import com.example.gateway.commons.utils.PaymentUtils;
 import com.example.gateway.commons.utils.Response;
 import com.example.gateway.integrations.PaymentTypeInterface;
 import com.example.gateway.integrations.mastercard.dto.*;
-import com.example.gateway.integrations.mastercard.interfaces.IMasterCardService;
 import com.example.gateway.commons.transactions.enums.PaymentTypeEnum;
 import com.example.gateway.commons.transactions.enums.Status;
 import com.example.gateway.commons.transactions.models.Transaction;
@@ -38,7 +39,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Qualifier("masterCardService")
 @Primary
-public class MasterCardService implements IMasterCardService, PaymentTypeInterface {
+public class MasterCardService implements ICardService, PaymentTypeInterface {
     private static final String FAILED = "FAILED";
     private static final String SUCCESSFUL = "SUCCESSFUL";
     private final MpgsService mpgsService;
@@ -49,7 +50,8 @@ public class MasterCardService implements IMasterCardService, PaymentTypeInterfa
     private final ChargeService chargeService;
     private final NotificationService notificationService;
     @Override
-    public Mono<Response<?>> makePayment(PaymentByCardRequestVO requestVO, String customerId) {
+    public Mono<Response<?>> payWithCard(CardPaymentRequestDTO cardPaymentRequestDTO, String merchantId, String customerId) {
+        PaymentByCardRequestVO requestVO = ObjectMapperUtil.toMasterCardDTO(cardPaymentRequestDTO, merchantId);
         if (requestVO.getMerchantId().isEmpty()){
             log.info("merchant Id must not be blank");
             throw new CustomException(Response.builder()
@@ -180,9 +182,30 @@ public class MasterCardService implements IMasterCardService, PaymentTypeInterfa
     }
 
     @Override
-    public Mono<Response<PaymentByCardResponseVO>> doTsq() {
+    public Mono<Response<Object>> authorizeCard(AuthorizeCardRequestPin request, String merchantId, String userId) {
         return null;
     }
+
+    @Override
+    public Mono<Response<Object>> authorizeCardOtp(AuthorizeCardRequestOTP request, String merchantId, String userId) {
+        return null;
+    }
+
+    @Override
+    public Mono<Response<Object>> authorizeCardAvs(AuthorizeCardRequestAVS request, String merchantId, String userId) {
+        return null;
+    }
+
+    @Override
+    public Mono<Response<Object>> authorizeCardPhone(AuthorizeCardRequestPhone request, String merchantId, String userId) {
+        return null;
+    }
+
+    @Override
+    public String getName() {
+        return "MASTERCARD";
+    }
+
 
     private Mono<Object> saveTransaction(PaymentByCardRequestVO request, String customerId){
         Transaction transaction = Transaction.builder()
@@ -201,7 +224,7 @@ public class MasterCardService implements IMasterCardService, PaymentTypeInterfa
                 .merchantId(request.getMerchantId())
                 .providerName("MPGS")
                 .build();
-        return chargeService.getPaymentCharge(transaction.getMerchantId(), PaymentMethod.CARD, ChargeCategory.PAY_IN,transaction.getAmount())
+        return chargeService.getPaymentCharge(transaction.getMerchantId(), PaymentMethod.CARD, ChargeCategory.PAY_IN,transaction.getAmount(),request.getCurrency().getCode())
                 .flatMap(fee -> {
                     transaction.setFee(fee);
                     return transactionService.saveTransaction(transaction,PaymentTypeEnum.CARD,request.getMerchantId());

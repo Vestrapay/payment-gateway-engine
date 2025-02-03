@@ -10,4 +10,6 @@ public class AuthorizeCardRequestAVS {
     @JsonProperty("transaction_reference")
     private String transactionReference;
     private AuthorizationAVS authorization;
+    private String currency = "NGN";
+
 }

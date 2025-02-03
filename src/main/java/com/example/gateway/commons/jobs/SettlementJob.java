@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 @Slf4j
@@ -23,64 +24,139 @@ public class SettlementJob {
     private final SettlementRepository settlementRepository;
     private final SettlementFactory settlementFactory;
     private final NotificationService notificationService;
+    @Value("${settlement.provider}")
+    private String settlementProvider;
     @Value("${spring.profiles.active}")
     String profile;
-    private boolean running = false;
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
+
     @Scheduled(cron = "0 0 0 * * *")
-    public void doSettlement(){
-        log.info("starting auto settlement");
-        if (profile.equalsIgnoreCase("cron")){
-            if (!running){
-                running = true;
-                LocalDateTime now = LocalDateTime.now();
-                transactionRepository.findByTransactionStatusAndSettlementStatusAndCreatedAtBetween(Status.SUCCESSFUL,Status.PENDING, now.toLocalDate().minusDays(10).atStartOfDay(),now.toLocalDate().atStartOfDay())
-                        .collectList()
-                        .flatMap(transactions -> {
-                            transactions.parallelStream()
-                                    .forEach(transaction -> {
-                                        String merchantId = transaction.getMerchantId();
-                                        settlementRepository.findByMerchantIdAndPrimaryAccount(merchantId,true)
-                                                .collectList()
-                                                .doOnNext(settlements -> {
-                                                    if (settlements.isEmpty()){
-                                                        transaction.setActivityStatus("no settlement account found for merchant");
-                                                        transactionRepository.save(transaction).subscribe();
-                                                        throw new RuntimeException("no settlement account found for merchant "+merchantId);
-                                                    }
-                                                    Settlement settlementAccount = settlements.stream().filter(Settlement::isPrimaryAccount)
-                                                            .findFirst().orElse(settlements.get(0));
+    public void doNgnSettlement() {
+        log.info("Starting auto NGN settlement");
 
-                                                    //push transaction to Provider for settlement
-                                                    settlementFactory.getSettlementService().pushSettlement(transaction,settlementAccount)
-                                                            .doOnNext(transaction1 -> {
-                                                                if (transaction.getSettlementStatus().equals(Status.SUCCESSFUL))
-                                                                    notificationService.postSettlementNotification(transaction1);
-                                                                transactionRepository.save(transaction1).subscribe();
-                                                            })
-                                                            .doOnError(throwable -> log.error(throwable.getMessage()))
-                                                            .subscribe();
-                                                })
-                                                .switchIfEmpty(Mono.defer(() -> {
-                                                    log.error("no settlement account configured for merchant {}",transaction.getMerchantId());
-                                                    notificationService.postSettlementError("no settlement account configured for merchant ",transaction.getMerchantId());
-                                                    return Mono.just(null);
-                                                }))
-                                                .doOnError(throwable -> {
-                                                    log.error("error is {}",throwable.getMessage());
-                                                })
-                                                .subscribe();
-
-                                    });
-                            return Mono.empty();
-                        }).subscribe();
-                running = false;
-            }
-
-
+        if (!profile.equalsIgnoreCase("cron")) {
+            log.info("Profile not active for cron jobs");
+            return;
         }
-        else
-            log.info("profile not active for cron jobs");
 
+        if (!isRunning.compareAndSet(false, true)) {
+            log.info("Settlement process is already running");
+            return;
+        }
+
+        try {
+            log.info("Settlement process started");
+            LocalDateTime now = LocalDateTime.now();
+            transactionRepository.findByTransactionStatusAndSettlementStatusAndCreatedAtBetweenAndCurrency(
+                            Status.SUCCESSFUL, Status.PENDING,
+                            now.toLocalDate().minusDays(10).atStartOfDay(),
+                            now.toLocalDate().atStartOfDay(),
+                            "NGN")
+                    .collectList()
+                    .flatMap(transactions -> {
+                        transactions.parallelStream()
+                                .forEach(transaction -> {
+                                    String merchantId = transaction.getMerchantId();
+                                    settlementRepository.findByMerchantIdAndPrimaryAccount(merchantId, true)
+                                            .collectList()
+                                            .doOnNext(settlements -> {
+                                                if (settlements.isEmpty()) {
+                                                    transaction.setActivityStatus("No settlement account found for merchant");
+                                                    transactionRepository.save(transaction).subscribe();
+                                                    throw new RuntimeException("No settlement account found for merchant " + merchantId);
+                                                }
+                                                Settlement settlementAccount = settlements.stream()
+                                                        .filter(Settlement::isPrimaryAccount)
+                                                        .findFirst()
+                                                        .orElse(settlements.get(0));
+
+                                                // Push transaction to Provider for settlement
+                                                settlementFactory.getSettlementService("KORAPAY")
+                                                        .pushSettlement(transaction, settlementAccount)
+                                                        .doOnNext(transaction1 -> {
+                                                            if (transaction.getSettlementStatus().equals(Status.SUCCESSFUL))
+                                                                notificationService.postSettlementNotification(transaction1);
+                                                            transactionRepository.save(transaction1).subscribe();
+                                                        })
+                                                        .doOnError(throwable -> log.error(throwable.getMessage()))
+                                                        .subscribe();
+                                            })
+                                            .doOnError(throwable -> log.error("Error is {}", throwable.getMessage()))
+                                            .subscribe();
+                                });
+                        return Mono.empty();
+                    }).subscribe();
+        } catch (Exception e) {
+            log.error("Error during settlement: {}", e.getMessage());
+        } finally {
+            isRunning.set(false);
+            log.info("Settlement process completed");
+        }
+    }
+
+    @Scheduled(cron = "0 0 0 * * *")
+    public void doUSDSettlement() {
+        log.info("Starting auto USD settlement");
+
+        if (!profile.equalsIgnoreCase("cron")) {
+            log.info("Profile not active for cron jobs");
+            return;
+        }
+
+        if (!isRunning.compareAndSet(false, true)) {
+            log.info("Settlement process is already running");
+            return;
+        }
+
+        try {
+            log.info("Settlement process started");
+            LocalDateTime now = LocalDateTime.now();
+            transactionRepository.findByTransactionStatusAndSettlementStatusAndCreatedAtBetweenAndCurrency(
+                            Status.SUCCESSFUL, Status.PENDING,
+                            now.toLocalDate().minusDays(30).atStartOfDay(),
+                            now.toLocalDate().minusDays(8).atStartOfDay(),
+                            "USD")
+                    .collectList()
+                    .flatMap(transactions -> {
+                        transactions.parallelStream()
+                                .forEach(transaction -> {
+                                    String merchantId = transaction.getMerchantId();
+                                    settlementRepository.findByMerchantIdAndPrimaryAccountAndCurrency(
+                                                    merchantId, true, transaction.getCurrency())
+                                            .collectList()
+                                            .doOnNext(settlements -> {
+                                                if (settlements.isEmpty()) {
+                                                    transaction.setActivityStatus("No settlement account found for merchant");
+                                                    transactionRepository.save(transaction).subscribe();
+                                                    throw new RuntimeException("No settlement account found for merchant " + merchantId);
+                                                }
+                                                Settlement settlementAccount = settlements.stream()
+                                                        .filter(Settlement::isPrimaryAccount)
+                                                        .findFirst()
+                                                        .orElse(settlements.get(0));
+
+                                                // Push transaction to Provider for settlement
+                                                settlementFactory.getSettlementService("BUDPAT")
+                                                        .pushSettlement(transaction, settlementAccount)
+                                                        .doOnNext(transaction1 -> {
+                                                            if (transaction.getSettlementStatus().equals(Status.SUCCESSFUL))
+                                                                notificationService.postSettlementNotification(transaction1);
+                                                            transactionRepository.save(transaction1).subscribe();
+                                                        })
+                                                        .doOnError(throwable -> log.error(throwable.getMessage()))
+                                                        .subscribe();
+                                            })
+                                            .doOnError(throwable -> log.error("Error is {}", throwable.getMessage()))
+                                            .subscribe();
+                                });
+                        return Mono.empty();
+                    }).subscribe();
+        } catch (Exception e) {
+            log.error("Error during settlement: {}", e.getMessage());
+        } finally {
+            isRunning.set(false);
+            log.info("Settlement process completed");
+        }
     }
 
 

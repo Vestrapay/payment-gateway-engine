@@ -25,6 +25,8 @@ public class RoutingRule {
     private String paymentMethod;
     @Column("provider")
     private String provider;
+    @Column("currency")
+    private String currency;
     @Column("created_at")
     @CreatedDate
     private LocalDateTime createdAt;

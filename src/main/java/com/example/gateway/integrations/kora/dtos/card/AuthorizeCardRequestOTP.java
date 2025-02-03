@@ -10,4 +10,6 @@ public class AuthorizeCardRequestOTP {
     @JsonProperty("transaction_reference")
     private String transactionReference;
     private AuthorizationOTP authorization;
+    private String currency = "NGN";
+
 }

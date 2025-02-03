@@ -20,17 +20,24 @@ public class ChargeService {
     private final ChargeRepository chargeRepository;
     @Value("${default.payment.fee}")
     private BigDecimal defaultFee;
-    public Mono<BigDecimal> getPaymentCharge(String merchantId, PaymentMethod paymentMethod, ChargeCategory category,BigDecimal amount){
-        return chargeRepository.findByMerchantIdAndPaymentMethodAndCategory(merchantId,paymentMethod,category)
+    public Mono<BigDecimal> getPaymentCharge(String merchantId, PaymentMethod paymentMethod, ChargeCategory category,BigDecimal amount,String currency){
+        return chargeRepository.findByMerchantIdAndPaymentMethodAndCategoryAndCurrency(merchantId,paymentMethod,category,currency)
                 .flatMap(charge -> {
                     return Mono.just(computeFee(charge, amount));
                 })
                 .switchIfEmpty(Mono.defer(() -> {
-                    Charge charge = Charge.builder()
+                    Charge.ChargeBuilder chargeBuilder = Charge.builder()
                             .useFlatFee(true)
-                            .flatFee(defaultFee)
-                            .build();
-                    return Mono.just(computeFee(charge, amount));
+                            .flatFee(defaultFee);
+                    if (currency=="USD"){
+                        chargeBuilder.flatFee(BigDecimal.valueOf(5));
+                    }
+                    else {
+                        chargeBuilder.flatFee(defaultFee);
+
+                    }
+
+                    return Mono.just(computeFee(chargeBuilder.build(), amount));
                 }));
 
     }

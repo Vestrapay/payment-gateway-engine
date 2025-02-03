@@ -7,6 +7,7 @@ import com.example.gateway.commons.utils.WebhookUtils;
 import com.example.gateway.commons.transactions.models.Transaction;
 import com.example.gateway.commons.webhook.repository.WebhookRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.gson.Gson;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +49,10 @@ public class CallbackService {
                                 Map<String,Object> responseObject = new HashMap<>();
 
                                 try {
-                                    jsonPayload = new ObjectMapper().writeValueAsString(transaction);
+                                    ObjectMapper mapper = new ObjectMapper();
+                                    mapper.registerModule(new JavaTimeModule());
+
+                                    jsonPayload = mapper.writeValueAsString(transaction);
                                     messageHash = generateHMAC(jsonPayload,keys.getSecretKey());
 
                                     if (Strings.isNotEmpty(secretHash)){
@@ -76,7 +80,7 @@ public class CallbackService {
                                             }
                                             else
                                                 log.info("Transaction {} not successfully notified",transaction.getTransactionReference());
-                                            return Mono.empty();
+                                            return Mono.just(transaction);
 
                                         })
                                         .retryWhen(Retry.backoff(3, Duration.ofSeconds(30)));

@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 public interface TransactionRepository extends R2dbcRepository<Transaction,Long> {
     Mono<Transaction> findByTransactionReferenceAndMerchantIdAndUuid(String TransactionRef,String merchantId, String UUID );
     Mono<Transaction> findByTransactionReferenceAndMerchantId(String TransactionRef,String merchantId);
+    Flux<Transaction> findByTransactionReference(String TransactionRef,String merchantId);
     Mono<Transaction> findByTransactionReferenceAndAmount(String TransactionRef, BigDecimal amount);
     Mono<Transaction> findByMerchantIdAndTransactionReferenceOrProviderReferenceAndUserId(String merchantId, String reference, String providerRef, String userId);
 
@@ -28,9 +29,12 @@ public interface TransactionRepository extends R2dbcRepository<Transaction,Long>
     Flux<Transaction> fetchTransactionsForSettlement(@Param("status") Status status,
                                                      @Param("settlementStatus") Status settlementStatus,@Param("created_at")LocalDateTime  createdAt);
 
-    Flux<Transaction> findByTransactionStatusAndSettlementStatusAndCreatedAtBetween(Status status,Status settlementStatus, LocalDateTime start, LocalDateTime end);
+    Flux<Transaction> findByTransactionStatusAndSettlementStatusAndCreatedAtBetweenAndCurrency(Status status,Status settlementStatus, LocalDateTime start, LocalDateTime end,String currency);
 
     @Query("select * from vestrapay_transactions where created_at >= CURRENT_DATE - INTERVAL '5 minutes' and (transaction_status='ONGOING' or transaction_status='PROCESSING') and scheme ='TRANSFER' limit 100 ")
     Flux<Transaction> getFailedTransactions();
+
+    Flux<Transaction>findByProviderNameAndTransactionStatusOrTransactionStatus(String providerName,Status status,Status ongoing);
+    Mono<Boolean>existsByTransactionReference(String reference);
 
 }

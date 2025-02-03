@@ -52,6 +52,11 @@ public class PaymentLink {
     @LastModifiedDate
     @Column("date_updated")
     private LocalDateTime dateUpdated;
+    @Column("success_redirect_url")
+    private String successRedirectUrl;
+    @Column("failed_redirect_url")
+    private String failedRedirectUrl;
+    private String currency;
 
 }
 

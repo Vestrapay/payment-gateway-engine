@@ -7,5 +7,5 @@ import reactor.core.publisher.Mono;
 
 @Repository
 public interface RoutingRuleRepository extends R2dbcRepository<RoutingRule,Long> {
-    Mono<RoutingRule>findByPaymentMethod(String paymentMethod);
+    Mono<RoutingRule> findByPaymentMethodAndCurrency(String paymentMethod,String currency);
 }

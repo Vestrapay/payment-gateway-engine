@@ -10,5 +10,5 @@ public interface IPaymentLinkService {
     Mono<Response<Object>> viewLinkStatus(String merchantId, String secret, String linkId, String userId);
     Mono<Response<Object>> fetchAllLinksForMerchant(String merchantId, String secret, String userId);
 
-    Mono<ResponseDTO<Object>> getPaymentLinkDetails(String linkId);
+    Mono<ResponseDTO<Object>> getPaymentLinkDetails(String linkId, String reference);
 }

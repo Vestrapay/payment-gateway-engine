@@ -1,7 +1,7 @@
 package com.example.gateway.api.transfer.controllers;
 
 import com.example.gateway.api.transfer.dtos.TransferPaymentRequestDTO;
-import com.example.gateway.api.transfer.interfaces.ITransferService;
+import com.example.gateway.api.transfer.services.TransferPaymentService;
 import com.example.gateway.commons.utils.Response;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,7 +21,7 @@ import reactor.core.publisher.Mono;
 @RequiredArgsConstructor
 @Slf4j
 public class TransferPaymentController {
-    private final ITransferService transferService;
+    private final TransferPaymentService transferService;
     @PostMapping
     public Mono<ResponseEntity<Response<?>>> payWithTransfer(@RequestHeader String secret,
                                                              @RequestHeader String merchantId,

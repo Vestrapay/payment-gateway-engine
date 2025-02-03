@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.util.Map;
 
 @lombok.Data
 @AllArgsConstructor
@@ -31,4 +32,6 @@ public class Data {
     private String transactionReference;
     public Authorization authorization;
     public MetaData metadata;
-    public Card card;}
+    public Card card;
+    private Map<String,String>extraParams;
+}

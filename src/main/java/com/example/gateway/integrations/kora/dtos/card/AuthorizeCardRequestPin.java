@@ -14,4 +14,5 @@ public class AuthorizeCardRequestPin {
     private String transactionReference;
     @NotNull(message = "authorization must be provided")
     private AuthorizationPin authorization;
+    private String currency = "NGN";
 }
