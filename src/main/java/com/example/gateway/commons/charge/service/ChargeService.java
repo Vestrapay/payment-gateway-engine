@@ -29,7 +29,7 @@ public class ChargeService {
                     Charge.ChargeBuilder chargeBuilder = Charge.builder()
                             .useFlatFee(true)
                             .flatFee(defaultFee);
-                    if (currency=="USD"){
+                    if (Objects.equals(currency, "USD")){
                         chargeBuilder.flatFee(BigDecimal.valueOf(5));
                     }
                     else {

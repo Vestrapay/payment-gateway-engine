@@ -136,7 +136,7 @@ public class SettlementJob {
                                                         .orElse(settlements.get(0));
 
                                                 // Push transaction to Provider for settlement
-                                                settlementFactory.getSettlementService("BUDPAT")
+                                                settlementFactory.getSettlementService("BUDPAY")
                                                         .pushSettlement(transaction, settlementAccount)
                                                         .doOnNext(transaction1 -> {
                                                             if (transaction.getSettlementStatus().equals(Status.SUCCESSFUL))

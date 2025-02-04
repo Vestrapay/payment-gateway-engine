@@ -78,6 +78,14 @@ public class CardPaymentService  {
                             .data("Merchant KYC not complete")
                             .message(FAILED)
                             .build());
+                }).onErrorResume(throwable -> {
+                    return Mono.just(Response.builder()
+                            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .errors(List.of(throwable.getMessage()))
+                            .statusCode(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                            .data(throwable.getMessage())
+                            .message(FAILED)
+                            .build());
                 });
 
 
